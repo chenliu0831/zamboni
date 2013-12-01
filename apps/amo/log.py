@@ -381,7 +381,7 @@ class APPROVE_VERSION_WAITING(_LOG):
     id = 53
     action_class = 'approve'
     format = _(u'{addon} {version} approved but waiting to be made public.')
-    short = _(u'Approved but unpublished')
+    short = _(u'Approved but waiting')
     keep = True
     review_email_user = True
     review_queue = True
@@ -646,6 +646,17 @@ class DELETE_USER_LOOKUP(_LOG):
     # L10n: {0} is the status
     format = _(u'User {0.name} {0.id} deleted via lookup tool.')
     keep = True
+
+
+class CONTENT_RATING_TO_ADULT(_LOG):
+    id = 126
+    format = _('{addon} content rating changed to Adult.')
+    review_queue = True
+
+
+class CONTENT_RATING_CHANGED(_LOG):
+    id = 127
+    format = _('{addon} content rating changed.')
 
 
 LOGS = [x for x in vars().values()

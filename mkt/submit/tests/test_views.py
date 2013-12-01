@@ -13,11 +13,11 @@ from pyquery import PyQuery as pq
 
 import amo
 import amo.tests
+from addons.models import (Addon, AddonCategory, AddonDeviceType, AddonUser,
+                           Category)
 from amo.tests import formset, initial
 from amo.tests.test_helpers import get_image_path
 from amo.urlresolvers import reverse
-from addons.models import (Addon, AddonCategory, AddonDeviceType, AddonUser,
-                           Category)
 from apps.users.models import UserNotification
 from apps.users.notifications import app_surveys
 from constants.applications import DEVICE_TYPES
@@ -27,9 +27,9 @@ from users.models import UserProfile
 
 import mkt
 from mkt.site.fixtures import fixture
+from mkt.submit.decorators import read_dev_agreement_required
 from mkt.submit.forms import AppFeaturesForm, NewWebappVersionForm
 from mkt.submit.models import AppSubmissionChecklist
-from mkt.submit.decorators import read_dev_agreement_required
 from mkt.webapps.models import AddonExcludedRegion as AER, AppFeatures, Webapp
 
 
@@ -266,10 +266,6 @@ class BaseWebAppTest(BaseUploadTest, UploadAddon, amo.tests.TestCase):
 
 
 class TestCreateWebApp(BaseWebAppTest):
-
-    def setUp(self):
-        super(TestCreateWebApp, self).setUp()
-        self.create_switch('buchets')
 
     @mock.patch('mkt.developers.tasks.fetch_icon')
     def test_post_app_redirect(self, fi_mock):
@@ -699,6 +695,24 @@ class TestDetails(TestSubmit):
         self.assert3xx(r, self.get_url('done'))
 
         eq_(self.webapp.status, amo.STATUS_PENDING)
+
+        assert record_action.called
+
+    @mock.patch('mkt.submit.views.record_action')
+    def test_success_iarc(self, record_action):
+        """TODO: delete the above test when cleaning up waffle."""
+        self.create_switch('iarc')
+
+        self._step()
+        data = self.get_dict()
+        r = self.client.post(self.url, data)
+        self.assertNoFormErrors(r)
+        self.check_dict(data=data)
+        self.webapp = self.get_webapp()
+        self.assert3xx(r, self.get_url('done'))
+
+        eq_(self.webapp.status, amo.STATUS_NULL)
+
         assert record_action.called
 
     def test_success_paid(self):
@@ -821,6 +835,17 @@ class TestDetails(TestSubmit):
         app = Webapp.objects.exclude(app_slug=self.webapp.app_slug)[0]
         self.assert3xx(r, reverse('submit.app.done', args=[app.app_slug]))
         eq_(self.get_webapp().status, amo.STATUS_PENDING)
+
+    def test_unique_allowed_iarc(self):
+        """TODO: delete the above test when cleaning up waffle."""
+        self.create_switch('iarc')
+
+        self._step()
+        r = self.client.post(self.url, self.get_dict(name=self.webapp.name))
+        self.assertNoFormErrors(r)
+        app = Webapp.objects.exclude(app_slug=self.webapp.app_slug)[0]
+        self.assert3xx(r, reverse('submit.app.done', args=[app.app_slug]))
+        eq_(self.get_webapp().status, amo.STATUS_NULL)
 
     def test_slug_invalid(self):
         self._step()
@@ -996,6 +1021,7 @@ class TestNextSteps(amo.tests.TestCase):
         self.user = UserProfile.objects.get(username='regularuser')
         assert self.client.login(username=self.user.email, password='password')
         self.webapp = Webapp.objects.get(id=337141)
+        self.webapp.update(status=amo.STATUS_PENDING)
         self.url = reverse('submit.app.done', args=[self.webapp.app_slug])
 
     def test_200(self, **kw):

@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: AMO-JS 0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2013-10-25 13:55-0700\n"
+"POT-Creation-Date: 2013-11-27 07:58-0700\n"
 "PO-Revision-Date: 2008-04-08 00:00-0600\n"
 "Last-Translator: Kevin Scannell <kscanne@gmail.com>\n"
 "Language-Team: Irish <gaeilge-gnulinux@lists.sourceforge.net>\n"
@@ -96,13 +96,13 @@ msgid "Finished validating {0}"
 msgstr "Bailíochtú {0} críochnaithe"
 
 #: media/js/common/upload-addon.js:307
-msgid "Your add-on passed validation with no errors and {0} warning."
-msgid_plural "Your add-on passed validation with no errors and {0} warnings."
-msgstr[0] "Bhí do bhreiseán bailíochtaithe gan earráidí agus le {0} rabhadh."
-msgstr[1] "Bhí do bhreiseán bailíochtaithe gan earráidí agus le {0} rabhadh."
-msgstr[2] "Bhí do bhreiseán bailíochtaithe gan earráidí agus le {0} rabhadh."
-msgstr[3] "Bhí do bhreiseán bailíochtaithe gan earráidí agus le {0} rabhadh."
-msgstr[4] "Bhí do bhreiseán bailíochtaithe gan earráidí agus le {0} rabhadh."
+msgid "Your add-on passed validation with no errors and {0} message."
+msgid_plural "Your add-on passed validation with no errors and {0} messages."
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+msgstr[3] ""
+msgstr[4] ""
 
 #: media/js/common/upload-addon.js:312
 msgid "Your add-on passed validation with no errors or warnings."
@@ -285,7 +285,7 @@ msgid "Iraqi Bank Code"
 msgstr ""
 
 #. L10n: {0} is the name of a bank detected from the bank account code.
-#: media/js/devreg/payments-enroll.js:135
+#: media/js/devreg/payments-enroll.js:136
 msgid "Detected: {0}"
 msgstr ""
 
@@ -299,20 +299,20 @@ msgstr[2] ""
 msgstr[3] ""
 msgstr[4] ""
 
-#: media/js/devreg/payments-manage.js:56 media/js/devreg/payments-manage.js:101 media/js/devreg/validator.js:193 media/js/devreg/validator.js:438 media/js/devreg/validator.js:457
-#: media/js/mkt/buttons.js:85 media/js/mkt/buttons.js:94 media/js/zamboni/validator.js:193 media/js/zamboni/validator.js:446 media/js/zamboni/validator.js:465
+#: media/js/devreg/payments-manage.js:58 media/js/devreg/payments-manage.js:107 media/js/devreg/validator.js:193 media/js/devreg/validator.js:438 media/js/devreg/validator.js:457
+#: media/js/mkt/buttons.js:85 media/js/mkt/buttons.js:94 media/js/zamboni/validator.js:194 media/js/zamboni/validator.js:449 media/js/zamboni/validator.js:468
 msgid "Error"
 msgstr "Earráid"
 
-#: media/js/devreg/payments-manage.js:57 media/js/devreg/payments-manage.js:102
+#: media/js/devreg/payments-manage.js:59 media/js/devreg/payments-manage.js:108
 msgid "There was a problem contacting the payment server."
 msgstr ""
 
-#: media/js/devreg/payments-manage.js:80
+#: media/js/devreg/payments-manage.js:85
 msgid "Authentication error"
 msgstr ""
 
-#: media/js/devreg/payments-manage.js:122
+#: media/js/devreg/payments-manage.js:131
 msgid "You do not currently have any payment accounts."
 msgstr ""
 
@@ -320,31 +320,31 @@ msgstr ""
 msgid "All tests passed successfully."
 msgstr "D'éirigh le gach tástáil."
 
-#: media/js/devreg/validator.js:74 media/js/devreg/validator.js:358 media/js/zamboni/validator.js:74 media/js/zamboni/validator.js:366
+#: media/js/devreg/validator.js:74 media/js/devreg/validator.js:358 media/js/zamboni/validator.js:74 media/js/zamboni/validator.js:367
 msgid "These tests were not run."
 msgstr ""
 
-#: media/js/devreg/validator.js:119 media/js/devreg/validator.js:132 media/js/zamboni/validator.js:119 media/js/zamboni/validator.js:132
+#: media/js/devreg/validator.js:119 media/js/devreg/validator.js:132 media/js/zamboni/validator.js:120 media/js/zamboni/validator.js:133
 msgid "Tests"
 msgstr "Tástálacha"
 
-#: media/js/devreg/validator.js:194 media/js/zamboni/validator.js:194
+#: media/js/devreg/validator.js:194 media/js/zamboni/validator.js:195
 msgid "Warning"
 msgstr "Rabhadh"
 
-#: media/js/devreg/validator.js:281 media/js/zamboni/validator.js:281
+#: media/js/devreg/validator.js:281 media/js/zamboni/validator.js:282
 msgid "Compatibility Tests"
 msgstr "Tástálacha Comhoiriúnachta"
 
-#: media/js/devreg/validator.js:329 media/js/zamboni/validator.js:330
+#: media/js/devreg/validator.js:329 media/js/zamboni/validator.js:331
 msgid "App failed validation."
 msgstr "Níor éirigh le bailíochtú d'aip."
 
-#: media/js/devreg/validator.js:331 media/js/zamboni/validator.js:332
+#: media/js/devreg/validator.js:331 media/js/zamboni/validator.js:333
 msgid "App passed validation."
 msgstr "D'éirigh le bailíochtú d'aip."
 
-#: media/js/devreg/validator.js:361 media/js/zamboni/validator.js:369
+#: media/js/devreg/validator.js:361 media/js/zamboni/validator.js:370
 msgid "{0} error"
 msgid_plural "{0} errors"
 msgstr[0] "{0} earráid"
@@ -353,7 +353,7 @@ msgstr[2] "{0} earráid"
 msgstr[3] "{0} n-earráid"
 msgstr[4] "{0} earráid"
 
-#: media/js/devreg/validator.js:363 media/js/zamboni/validator.js:371
+#: media/js/devreg/validator.js:363 media/js/zamboni/validator.js:372
 msgid "{0} warning"
 msgid_plural "{0} warnings"
 msgstr[0] "{0} rabhadh"
@@ -362,11 +362,11 @@ msgstr[2] "{0} rabhadh"
 msgstr[3] "{0} rabhadh"
 msgstr[4] "{0} rabhadh"
 
-#: media/js/devreg/validator.js:440 media/js/zamboni/validator.js:448
+#: media/js/devreg/validator.js:440 media/js/zamboni/validator.js:451
 msgid "Validation task could not complete or completed with errors"
 msgstr "Níorbh fhéidir an bailíochtú a chur i gcrích, nó chríochnaigh sé le hearráidí"
 
-#: media/js/devreg/validator.js:458 media/js/zamboni/validator.js:466
+#: media/js/devreg/validator.js:458 media/js/zamboni/validator.js:469
 msgid "Internal server error"
 msgstr "Earráid inmheánach leis an bhfreastalaí"
 
@@ -1079,36 +1079,52 @@ msgstr "OK"
 msgid "Payment failed. Try again later."
 msgstr ""
 
-#: media/js/mkt/reviewers.js:98
+#: media/js/mkt/reviewers.js:100
 msgid "Packaged App"
 msgstr "Aip Phacáistithe"
 
-#: media/js/mkt/reviewers.js:102
+#: media/js/mkt/reviewers.js:104
 msgid "Privileged App"
 msgstr ""
 
-#: media/js/mkt/reviewers.js:105
+#: media/js/mkt/reviewers.js:107
 msgid "More Information Requested"
 msgstr ""
 
-#: media/js/mkt/reviewers.js:108
+#: media/js/mkt/reviewers.js:110
 msgid "Contains Editor Comment"
 msgstr ""
 
-#: media/js/mkt/reviewers.js:112
+#: media/js/mkt/reviewers.js:114
 msgid "Premium App"
 msgstr ""
 
-#: media/js/mkt/reviewers.js:115
+#: media/js/mkt/reviewers.js:117
 msgid "Escalated"
 msgstr ""
 
-#: media/js/mkt/reviewers.js:120
+#: media/js/mkt/reviewers.js:122
 msgid "Free"
 msgstr "Saor in Aisce"
 
-#: media/js/mkt/reviewers.js:228
+#: media/js/mkt/reviewers.js:230
 msgid "Any"
+msgstr ""
+
+#: media/js/mkt/reviewers.js:257
+msgid "Approved app: {app}"
+msgstr ""
+
+#: media/js/mkt/reviewers.js:260
+msgid "Rejected app: {app}"
+msgstr ""
+
+#: media/js/mkt/reviewers.js:266
+msgid "Error approving app: {app}"
+msgstr ""
+
+#: media/js/mkt/reviewers.js:267
+msgid "Error rejecting app: {app}"
 msgstr ""
 
 #: media/js/mkt/themes_review.js:174
@@ -1317,7 +1333,7 @@ msgstr ""
 msgid "Total Installs"
 msgstr ""
 
-#: media/js/zamboni/admin_validation.js:24 media/js/zamboni/devhub.js:1438 media/js/zamboni/editors.js:329
+#: media/js/zamboni/admin_validation.js:24 media/js/zamboni/devhub.js:1438 media/js/zamboni/editors.js:336
 msgid "Select an application first"
 msgstr "Roghnaigh feidhmchlár i dtosach báire"
 
@@ -1548,44 +1564,48 @@ msgstr "Moltaí á n-aimsiú&hellip;"
 msgid "Updating recommendations&hellip;"
 msgstr "Moltaí á nuashonrú&hellip;"
 
-#: media/js/zamboni/editors.js:160
+#: media/js/zamboni/editors.js:162
 msgid "{name} was viewing this page first."
 msgstr "Bhí {name} ag féachaint ar an leathanach seo ar dtús."
 
-#: media/js/zamboni/editors.js:210
+#: media/js/zamboni/editors.js:212
 msgid "Receipt checked by app."
 msgstr ""
 
-#: media/js/zamboni/editors.js:212
+#: media/js/zamboni/editors.js:214
 msgid "Receipt was not checked by app."
 msgstr ""
 
-#: media/js/zamboni/editors.js:278
+#: media/js/zamboni/editors.js:285
 msgid "{name} was viewing this add-on first."
 msgstr ""
 
-#: media/js/zamboni/editors.js:289
+#: media/js/zamboni/editors.js:296
 msgid "Loading&hellip;"
 msgstr "Á luchtú&hellip;"
 
-#: media/js/zamboni/editors.js:294
+#: media/js/zamboni/editors.js:301
 msgid "Version Notes"
 msgstr "Nótaí Eisiúna"
 
-#: media/js/zamboni/editors.js:299
+#: media/js/zamboni/editors.js:306
 msgid "Notes for Reviewers"
 msgstr ""
 
-#: media/js/zamboni/editors.js:304
+#: media/js/zamboni/editors.js:311
 msgid "No version notes found"
 msgstr ""
 
-#: media/js/zamboni/editors.js:364
+#: media/js/zamboni/editors.js:371
 msgid "Average Reviews"
 msgstr ""
 
-#: media/js/zamboni/editors.js:420
+#: media/js/zamboni/editors.js:427
 msgid "Number of Reviews"
+msgstr ""
+
+#: media/js/zamboni/editors.js:486
+msgid "Error loading translation"
 msgstr ""
 
 #: media/js/zamboni/global.js:416
@@ -1624,13 +1644,22 @@ msgstr[4] "{0} carachtar fágtha ar a laghad."
 msgid "All"
 msgstr "Uile"
 
-#: media/js/zamboni/validator.js:336
+#: media/js/zamboni/validator.js:337
 msgid "Add-on failed validation."
 msgstr "Níor éirigh le bailíochtú an bhreiseáin."
 
-#: media/js/zamboni/validator.js:338
+#: media/js/zamboni/validator.js:339
 msgid "Add-on passed validation."
 msgstr "D'éirigh le bailíochtú an bhreiseáin."
+
+#: media/js/zamboni/validator.js:374
+msgid "{0} notice"
+msgid_plural "{0} notices"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+msgstr[3] ""
+msgstr[4] ""
 
 #: media/js/zamboni/mobile/buttons.js:75
 msgid "Not Updated for {0} {1}"

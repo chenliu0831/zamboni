@@ -1,19 +1,17 @@
 from django import http
 from django.conf.urls import include, patterns, url
 
-from rest_framework.routers import DefaultRouter, SimpleRouter
-from tastypie.api import Api
+from rest_framework.routers import SimpleRouter
 
 from lib.misc.urlconf_decorator import decorate
 
 import amo
 from amo.decorators import write
 from mkt.api.base import AppRouter
-from mkt.developers.api import AccountResource
-from mkt.developers.api_payments import (AddonPaymentAccountViewSet,
-                                         PaymentCheckViewSet,
-                                         PaymentDebugViewSet, PaymentViewSet,
-                                         UpsellViewSet)
+from mkt.developers.api import ContentRatingList, ContentRatingsPingback
+from mkt.developers.api_payments import (
+    AddonPaymentAccountViewSet, PaymentAccountViewSet, PaymentCheckViewSet,
+    PaymentDebugViewSet, PaymentViewSet, UpsellViewSet)
 from mkt.developers.decorators import use_apps
 from mkt.receipts.urls import test_patterns
 from mkt.stats.urls import all_apps_stats_patterns
@@ -22,7 +20,7 @@ from . import views
 from . import views_payments
 
 
-def bango_patterns(prefix):
+def provider_patterns(prefix):
     return patterns('',
         url('^accounts$', views_payments.payment_accounts,
             name='mkt.developers.%s.payment_accounts' % prefix),
@@ -62,11 +60,14 @@ app_detail_patterns = patterns('',
     url('^blocklist$', views.blocklist, name='mkt.developers.apps.blocklist'),
 
     # IARC content ratings.
-    url('^ratings/$', views.ratings, name='mkt.developers.apps.ratings'),
+    url('^content_ratings$', views.content_ratings,
+        name='mkt.developers.apps.ratings'),
+    url('^content_ratings/edit$', views.content_ratings_edit,
+        name='mkt.developers.apps.ratings_edit'),
 
-    url('^status/preload/$', views.preload_home,
+    url('^status/preload$', views.preload_home,
         name='mkt.developers.apps.preload_home'),
-    url('^status/preload/submit/$', views.preload_submit,
+    url('^status/preload/submit$', views.preload_submit,
         name='mkt.developers.apps.preload_submit'),
 
     # TODO: '^versions/$'
@@ -167,16 +168,16 @@ urlpatterns = decorate(write, patterns('',
         name='mkt.developers.transactions'),
 
     # Bango-specific stuff.
-    url('^bango/', include(bango_patterns('bango'))),
+    url('^bango/', include(provider_patterns('bango'))),
+    url('^reference/', include(provider_patterns('reference'))),
 
     url('^test/$', views.testing, name='mkt.developers.apps.testing'),
     url('^test/receipts/', include(test_patterns)),
 ))
 
-payments = Api(api_name='payments')
-payments.register(AccountResource())
-
 api_payments = SimpleRouter()
+api_payments.register(r'account', PaymentAccountViewSet,
+                      base_name='payment-account')
 api_payments.register(r'upsell', UpsellViewSet, base_name='app-upsell')
 api_payments.register(r'app', AddonPaymentAccountViewSet,
                       base_name='app-payment-account')
@@ -188,8 +189,14 @@ app_payments.register(r'payments/status', PaymentCheckViewSet,
 app_payments.register(r'payments/debug', PaymentDebugViewSet,
                       base_name='app-payments-debug')
 
-api_patterns = patterns('',
-    url(r'^', include(payments.urls)),
+payments_api_patterns = patterns('',
     url(r'^payments/', include(api_payments.urls)),
-    url(r'^apps/app/', include(app_payments.urls))
+    url(r'^apps/app/', include(app_payments.urls)),
+)
+
+dev_api_patterns = patterns('',
+    url(r'^apps/app/(?P<pk>[^/<>"\']+)/content-ratings/pingback/',
+        ContentRatingsPingback.as_view(), name='content-ratings-pingback'),
+    url(r'^apps/app/(?P<pk>[^/<>"\']+)/content-ratings/',
+        ContentRatingList.as_view(), name='content-ratings-list'),
 )

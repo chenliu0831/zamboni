@@ -64,6 +64,7 @@ INSTALLED_APPS += (
     'mkt.detail',
     'mkt.developers',
     'mkt.ecosystem',
+    'mkt.feed',
     'mkt.files',
     'mkt.lookup',
     'mkt.monolith',
@@ -93,12 +94,12 @@ MIDDLEWARE_CLASSES.remove(
 MIDDLEWARE_CLASSES.remove('multidb.middleware.PinningRouterMiddleware')
 
 MIDDLEWARE_CLASSES += [
-    'mkt.site.middleware.RestrictJSONUploadSizeMiddleware',
     'mkt.site.middleware.RedirectPrefixedURIMiddleware',
     'mkt.site.middleware.LocaleMiddleware',
 
     'mkt.regions.middleware.RegionMiddleware',
     'mkt.site.middleware.DeviceDetectionMiddleware',
+    'mkt.site.middleware.DoNotTrackTrackingMiddleware',
     'mkt.api.middleware.TimingMiddleware',
     'mkt.api.middleware.APIVersionMiddleware',
     'mkt.api.middleware.CORSMiddleware',
@@ -211,8 +212,8 @@ SENTRY_DSN = None
 
 # A smaller range of languages for the Marketplace.
 AMO_LANGUAGES = (
-    'ca', 'cs', 'de', 'el', 'en-US', 'es', 'fr', 'hr', 'hu', 'it', 'nl', 'pl',
-    'pt-BR', 'ro', 'ru', 'sr', 'sr-Latn', 'sk', 'tr',
+    'ca', 'cs', 'de', 'el', 'en-US', 'es', 'fr', 'hr', 'hu', 'it', 'mk', 'nl',
+    'pl', 'pt-BR', 'ro', 'ru', 'sr', 'sr-Latn', 'sk', 'tr',
 )
 LANGUAGES = lazy(lazy_langs, dict)(AMO_LANGUAGES)
 LANGUAGE_URL_MAP = dict([(i.lower(), i) for i in AMO_LANGUAGES])
@@ -290,6 +291,7 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': (
         'rest_framework.filters.DjangoFilterBackend',
     ),
+    'EXCEPTION_HANDLER': 'mkt.api.exceptions.custom_exception_handler',
     'PAGINATE_BY': 25,
     'PAGINATE_BY_PARAM': 'limit'
 }
@@ -304,6 +306,7 @@ LOGOUT_REDIRECT_URL = '/developers/'
 # Name of our Commonplace repositories on GitHub.
 COMMONPLACE_REPOS = ['commbadge', 'fireplace', 'marketplace-stats',
                      'rocketfuel']
+COMMONPLACE_REPOS_APPCACHED = ['fireplace']
 
 # Limit payments to only people who are in a whitelist. This is useful for
 # dev and stage server where only developers and testers should be able to make
@@ -314,9 +317,6 @@ COMMONPLACE_REPOS = ['commbadge', 'fireplace', 'marketplace-stats',
 # For them to be able purchase apps.
 PURCHASE_LIMITED = False
 
-# IARC content ratings.
-IARC_SUBMISSION_ENDPOINT = ''
-IARC_SERVICE_ENDPOINT = ''
-IARC_PASSWORD = ''
-IARC_STOREFRONT_ID = 4
-IARC_COMPANY = 'Mozilla'
+# A list of the payment providers supported by the marketplace. Currently there
+# can be only one value, however we expect this to change in the future.
+PAYMENT_PROVIDERS = ['bango']

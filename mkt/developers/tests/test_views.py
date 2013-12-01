@@ -20,6 +20,7 @@ from pyquery import PyQuery as pq
 import amo
 import amo.tests
 from addons.models import Addon, AddonDeviceType, AddonUpsell, AddonUser
+from amo.helpers import absolutify
 from amo.tests import (app_factory, assert_no_validation_errors,
                        version_factory)
 from amo.tests.test_helpers import get_image_path
@@ -38,7 +39,7 @@ import mkt
 from mkt.constants import MAX_PACKAGED_APP_SIZE
 from mkt.developers import tasks
 from mkt.developers.views import (_filter_transactions, _get_transactions,
-                                  ratings)
+                                  content_ratings, content_ratings_edit)
 from mkt.site.fixtures import fixture
 from mkt.submit.models import AppSubmissionChecklist
 from mkt.webapps.models import ContentRating, Webapp
@@ -419,9 +420,11 @@ class TestPublicise(amo.tests.TestCase):
     def test_publicise_get(self):
         eq_(self.client.get(self.publicise_url).status_code, 405)
 
+    @mock.patch('mkt.webapps.models.Webapp.set_iarc_storefront_data')
     @mock.patch('mkt.webapps.models.Webapp.update_supported_locales')
     @mock.patch('mkt.webapps.models.Webapp.update_name_from_package_manifest')
-    def test_publicise(self, update_name, update_locales):
+    def test_publicise(self, update_name, update_locales, storefront_mock):
+        self.create_switch('iarc')
         res = self.client.post(self.publicise_url)
         eq_(res.status_code, 302)
         eq_(self.get_webapp().status, amo.STATUS_PUBLIC)
@@ -429,6 +432,7 @@ class TestPublicise(amo.tests.TestCase):
             amo.STATUS_PUBLIC)
         assert update_name.called
         assert update_locales.called
+        assert storefront_mock.called
 
     def test_status(self):
         res = self.client.get(self.status_url)
@@ -550,7 +554,7 @@ class TestStatus(amo.tests.TestCase):
     def setUp(self):
         self.webapp = Addon.objects.get(id=337141)
         self.file = self.webapp.versions.latest().all_files[0]
-        self.file.update(status=amo.STATUS_OBSOLETE)
+        self.file.update(status=amo.STATUS_DISABLED)
         self.status_url = self.webapp.get_dev_url('versions')
         assert self.client.login(username='steamcube@mozilla.com',
                                  password='password')
@@ -1128,7 +1132,7 @@ class TestContentRatings(amo.tests.TestCase):
 
     def setUp(self):
         self.create_switch('iarc')
-        self.app = app_factory(unrated=True)
+        self.app = app_factory()
         self.user = UserProfile.objects.get()
         AddonUser.objects.create(addon=self.app, user=self.user)
 
@@ -1138,15 +1142,10 @@ class TestContentRatings(amo.tests.TestCase):
 
     @override_settings(IARC_SUBMISSION_ENDPOINT='https://yo.lo',
                        IARC_STOREFRONT_ID=1, IARC_COMPANY='Mozilla',
-                       IARC_PASSWORD='s3kr3t')
-    def test_200(self):
-        r = ratings(self.req, app_slug=self.app.app_slug)
-        eq_(r.status_code, 200)
-
-        # Summary page hidden if no ratings.
+                       IARC_PLATFORM='Firefox', IARC_PASSWORD='s3kr3t')
+    def test_edit(self):
+        r = content_ratings_edit(self.req, app_slug=self.app.app_slug)
         doc = pq(r.content)
-        assert doc('#ratings-summary').hasClass('hidden')
-        assert not doc('#ratings-edit').hasClass('hidden')
 
         # Check the form action.
         form = doc('#ratings-edit form')[0]
@@ -1158,34 +1157,53 @@ class TestContentRatings(amo.tests.TestCase):
         eq_(values['company'], 'Mozilla')
         eq_(values['password'], 's3kr3t')
         eq_(values['email'], self.req.amo_user.email)
-        eq_(values['appname'], self.app.app_slug)
-        eq_(values['platform'], '2001,2002')
+        eq_(values['appname'], self.app.name)
+        eq_(values['platform'], 'Firefox')
+        eq_(values['token'], self.app.iarc_token())
+        eq_(values['pingbackurl'],
+            absolutify(reverse('content-ratings-pingback',
+                               args=[self.app.app_slug])))
+
+    def test_edit_default_locale(self):
+        """Ensures the form uses the app's default locale."""
+        self.app.name = {'es': u'Español', 'en-US': 'English'}
+        self.app.default_locale = 'es'
+        self.app.save()
+
+        r = content_ratings_edit(self.req, app_slug=self.app.app_slug)
+        doc = pq(r.content.decode('utf-8'))
+        eq_(dict(doc('#ratings-edit form')[0].form_values())['appname'],
+            u'Español')
+
+        self.app.update(default_locale='en-US')
+        r = content_ratings_edit(self.req, app_slug=self.app.app_slug)
+        doc = pq(r.content.decode('utf-8'))
+        eq_(dict(doc('#ratings-edit form')[0].form_values())['appname'],
+            u'English')
 
     def test_summary(self):
-        ContentRating.objects.create(
-            addon=self.app, ratings_body=mkt.ratingsbodies.CLASSIND.id,
-            rating=mkt.ratingsbodies.CLASSIND_L.id)
-        ContentRating.objects.create(
-            addon=self.app, ratings_body=mkt.ratingsbodies.GENERIC.id,
-            rating=mkt.ratingsbodies.GENERIC_3.id)
-        ContentRating.objects.create(
-            addon=self.app, ratings_body=mkt.ratingsbodies.USK.id,
-            rating=mkt.ratingsbodies.USK_18.id)
-        ContentRating.objects.create(
-            addon=self.app, ratings_body=mkt.ratingsbodies.ESRB.id,
-            rating=mkt.ratingsbodies.ESRB_M.id)
-        ContentRating.objects.create(
-            addon=self.app, ratings_body=mkt.ratingsbodies.PEGI.id,
-            rating=mkt.ratingsbodies.PEGI_12.id)
+        rbs = mkt.ratingsbodies
+        ratings = [rbs.CLASSIND_L, rbs.GENERIC_3, rbs.USK_18, rbs.ESRB_M,
+                   rbs.PEGI_12]
+        for rating in ratings:
+            ContentRating.objects.create(
+                addon=self.app, ratings_body=rating.ratingsbody.id,
+                rating=rating.id)
 
-        r = ratings(self.req, app_slug=self.app.app_slug)
+        r = content_ratings(self.req, app_slug=self.app.app_slug)
         doc = pq(r.content)
 
-        # Edit page hidden if have content ratings.
-        assert doc('#ratings-edit').hasClass('hidden')
+        for i, name in enumerate(doc('.name')):
+            eq_(name.text, ratings[i].ratingsbody.name)
 
-        eq_(doc('.name')[0].text, 'CLASSIND')
-        eq_(doc('.name')[1].text, 'Generic')
-        eq_(doc('.name')[2].text, 'USK')
-        eq_(doc('.name')[3].text, 'ESRB')
-        eq_(doc('.name')[4].text, 'PEGI')
+    def test_edit_iarc_app_form(self):
+        r = content_ratings_edit(self.req, app_slug=self.app.app_slug)
+        doc = pq(r.content)
+        assert not doc('#id_submission_id').attr('value')
+        assert not doc('#id_security_code').attr('value')
+
+        self.app.set_iarc_info(1234, 'abcd')
+        r = content_ratings_edit(self.req, app_slug=self.app.app_slug)
+        doc = pq(r.content)
+        eq_(doc('#id_submission_id').attr('value'), '1234')
+        eq_(doc('#id_security_code').attr('value'), 'abcd')

@@ -264,10 +264,13 @@ class ThemeReviewForm(happyforms.Form):
                 '[Rereview] ' if is_rereview else '', theme.addon.name,
                 theme.id, action))
 
+        score = 0
         if action not in [rvw.ACTION_MOREINFO, rvw.ACTION_FLAG]:
-            ReviewerScore.award_points(theme_lock.reviewer, theme.addon,
-                                       theme.addon.status)
+            score = ReviewerScore.award_points(theme_lock.reviewer, theme.addon,
+                                               theme.addon.status)
         theme_lock.delete()
+
+        return score
 
 
 class ThemeSearchForm(forms.Form):
@@ -311,3 +314,30 @@ class ApiReviewersSearchForm(ApiSearchForm):
             return 'any'
 
         return amo.STATUS_CHOICES_API_LOOKUP.get(status, amo.STATUS_PENDING)
+
+
+class ApproveRegionForm(happyforms.Form):
+    """TODO: Use a DRF serializer."""
+    approve = forms.BooleanField(required=False)
+
+    def __init__(self, *args, **kw):
+        self.app = kw.pop('app')
+        self.region = kw.pop('region')
+        super(ApproveRegionForm, self).__init__(*args, **kw)
+
+    def save(self):
+        approved = self.cleaned_data['approve']
+
+        if approved:
+            status = amo.STATUS_PUBLIC
+            # Make it public in the previously excluded region.
+            self.app.addonexcludedregion.filter(
+                region=self.region.id).delete()
+        else:
+            status = amo.STATUS_REJECTED
+
+        value, changed = self.app.geodata.set_status(
+            self.region, status, save=True)
+
+        if changed:
+            self.app.save()

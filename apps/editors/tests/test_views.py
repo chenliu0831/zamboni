@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.core import mail
 from django.utils.datastructures import SortedDict
+from django.test.utils import override_settings
 
 from mock import Mock, patch
 from nose.tools import eq_
@@ -365,6 +366,25 @@ class TestHome(EditorTest):
         cols = doc('#editors-stats .editor-stats-table:eq(1)').find('td')
         eq_(cols.eq(0).text(), self.user.display_name)
         eq_(int(cols.eq(1).text()), 2, 'Approval count should be 2')
+
+    @override_settings(EDITOR_REVIEWS_MAX_DISPLAY=0)
+    def test_stats_user_position_ranked(self):
+        self.approve_reviews()
+        doc = pq(self.client.get(self.url).content)
+        p = doc('#editors-stats .editor-stats-table p:eq(0)')
+        eq_(p.text(), "You're #1 with 1 reviews",
+            'Total reviews should show position')
+        p = doc('#editors-stats .editor-stats-table p:eq(1)')
+        eq_(p.text(), "You're #1 with 1 reviews",
+            'Monthly reviews should show position')
+
+    def test_stats_user_position_unranked(self):
+        self.approve_reviews()
+        doc = pq(self.client.get(self.url).content)
+        p = doc('#editors-stats .editor-stats-table p:eq(0)')
+        eq_(p.text(), None)
+        p = doc('#editors-stats .editor-stats-table p:eq(1)')
+        eq_(p.text(), None, 'Monthly reviews should not be displayed')
 
     def test_new_editors(self):
         amo.log(amo.LOG.GROUP_USER_ADDED,
@@ -2065,14 +2085,14 @@ class TestReviewPreliminary(ReviewBase):
     def test_prelim_multiple_files(self):
         f = self.version.files.all()[0]
         f.pk = None
-        f.status = amo.STATUS_OBSOLETE
+        f.status = amo.STATUS_DISABLED
         f.save()
         self.addon.update(status=amo.STATUS_LITE)
         data = self.prelim_dict()
         data['addon_files'] = [f.pk]
         self.client.post(self.url, data)
-        self.assertSetEqual([amo.STATUS_OBSOLETE, amo.STATUS_LITE],
-            [f.status for f in self.version.files.all()])
+        eq_([amo.STATUS_DISABLED, amo.STATUS_LITE],
+            [f.status for f in self.version.files.all().order_by('status')])
 
 
 class TestReviewPending(ReviewBase):
@@ -2102,7 +2122,7 @@ class TestReviewPending(ReviewBase):
 
     def test_disabled_file(self):
         obj = File.objects.create(version=self.version,
-                                  status=amo.STATUS_OBSOLETE)
+                                  status=amo.STATUS_DISABLED)
         response = self.client.get(self.url, self.pending_dict())
         doc = pq(response.content)
         assert 'disabled' in doc('#file-%s' % obj.pk)[0].keys()
@@ -2184,7 +2204,7 @@ class TestStatusFile(ReviewBase):
         self.get_file().update(status=amo.STATUS_PUBLIC)
         for status in set(amo.STATUS_UNDER_REVIEW + amo.LITE_STATUSES):
             self.addon.update(status=status)
-            self.check_status('Published')
+            self.check_status('Fully Reviewed')
 
     def test_other(self):
         self.addon.update(status=amo.STATUS_BETA)

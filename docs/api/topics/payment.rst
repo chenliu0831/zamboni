@@ -79,8 +79,6 @@ Payment accounts can be added and listed.
 
     :param account_name: Account name.
     :type  account_name: string
-    :param companyName: Company name.
-    :type companyName: string
     :param vendorName: Vendor name.
     :type vendorName: string
     :param financeEmailAddress: Financial email.
@@ -475,13 +473,15 @@ Pay Tiers
 
     :param meta: :ref:`meta-response-label`.
     :type meta: object
-    :param objects: A :ref:`listing <objects-response-label>` of :ref:`apps <pay-tier-response-label>`.
+    :param objects: A :ref:`listing <objects-response-label>` of :ref:`pay tiers <pay-tier-response-label>`.
     :type objects: array
     :statuscode 200: successfully completed.
 
 .. _pay-tier-response-label:
 
 .. http:get:: /api/v1/webpay/prices/(int:id)/
+
+    Returns a specific pay tier.
 
     **Response**
 
@@ -684,7 +684,7 @@ Transaction failure
     **Response**
 
     :status 202: Notification will be sent.
-    :statuscode 401: The API user is not authorized to report failures.
+    :statuscode 403: The API user is not authorized to report failures.
 
 .. _CORS: https://developer.mozilla.org/en-US/docs/HTTP/Access_control_CORS
 .. _WebPay: https://github.com/mozilla/webpay

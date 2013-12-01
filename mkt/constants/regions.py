@@ -34,6 +34,9 @@ class REGION(object):
     weight::
         Determines sort order (after slug).
 
+    special::
+        Does this region need to be reviewed separately? That region is
+        special.
 
     """
     id = None
@@ -43,7 +46,8 @@ class REGION(object):
     adolescent = True
     mcc = None
     weight = 0
-    ratingsbodies = ()
+    ratingsbody = None
+    special = False
 
 
 class WORLDWIDE(REGION):
@@ -59,8 +63,7 @@ class US(REGION):
     slug = 'us'
     mcc = 310
     weight = 1
-    # TODO: Don't flip these until we deploy IARC (bug 931948).
-    # ratingsbodies = (ratingsbodies.ESRB,)
+    ratingsbody = ratingsbodies.ESRB
 
 
 class UK(REGION):
@@ -69,7 +72,7 @@ class UK(REGION):
     slug = 'uk'
     default_currency = 'GBP'
     mcc = 235
-    # ratingsbodies = (ratingsbodies.PEGI,)
+    ratingsbody = ratingsbodies.PEGI
 
 
 class BR(REGION):
@@ -79,7 +82,7 @@ class BR(REGION):
     default_currency = 'BRL'
     default_language = 'pt-BR'
     mcc = 724
-    ratingsbodies = (ratingsbodies.CLASSIND,)
+    ratingsbody = ratingsbodies.CLASSIND
 
 
 class SPAIN(REGION):
@@ -89,7 +92,7 @@ class SPAIN(REGION):
     default_currency = 'EUR'
     default_language = 'es'
     mcc = 214
-    # ratingsbodies = (ratingsbodies.PEGI,)
+    ratingsbody = ratingsbodies.PEGI
 
 
 class CO(REGION):
@@ -117,7 +120,7 @@ class PL(REGION):
     default_currency = 'PLN'
     default_language = 'pl'
     mcc = 260
-    # ratingsbodies = (ratingsbodies.PEGI,)
+    ratingsbody = ratingsbodies.PEGI
 
 
 class MX(REGION):
@@ -136,7 +139,7 @@ class HU(REGION):
     default_currency = 'HUF'
     default_language = 'hu'
     mcc = 216
-    # ratingsbodies = (ratingsbodies.PEGI,)
+    ratingsbody = ratingsbodies.PEGI
 
 
 class DE(REGION):
@@ -146,7 +149,7 @@ class DE(REGION):
     default_currency = 'EUR'
     default_language = 'de'
     mcc = 262
-    ratingsbodies = (ratingsbodies.GENERIC,)
+    ratingsbody = ratingsbodies.USK
 
 
 class ME(REGION):
@@ -174,7 +177,7 @@ class GR(REGION):
     default_currency = 'EUR'
     default_language = 'el'
     mcc = 202
-    # ratingsbodies = (ratingsbodies.PEGI,)
+    ratingsbody = ratingsbodies.PEGI
 
 
 class PE(REGION):
@@ -211,6 +214,7 @@ class CN(REGION):
     default_currency = 'RMB'
     default_language = 'zh-CN'
     mcc = 460
+    special = True
 
 
 # Create a list of tuples like so (in alphabetical order):
@@ -244,11 +248,14 @@ REGIONS_CHOICES_ID_DICT = dict(REGIONS_CHOICES_ID)
 ALL_REGIONS = frozenset(REGIONS_DICT.values())
 ALL_REGION_IDS = sorted(REGIONS_CHOICES_ID_DICT.keys())
 
+SPECIAL_REGIONS = [x for x in BY_SLUG if x.special]
+SPECIAL_REGION_IDS = sorted(x.id for x in SPECIAL_REGIONS)
+
 # Regions not including worldwide.
 REGION_IDS = sorted(REGIONS_CHOICES_ID_DICT.keys())[1:]
 
 # Regions that have ratings bodies.
-ALL_REGIONS_WITH_CONTENT_RATINGS = [x for x in ALL_REGIONS if x.ratingsbodies]
+ALL_REGIONS_WITH_CONTENT_RATINGS = [x for x in ALL_REGIONS if x.ratingsbody]
 
 # Regions without ratings bodies and fallback to the GENERIC rating body.
 ALL_REGIONS_WO_CONTENT_RATINGS = (set(ALL_REGIONS) -

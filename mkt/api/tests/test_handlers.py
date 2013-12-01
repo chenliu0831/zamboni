@@ -12,27 +12,27 @@ import amo
 from access.models import Group, GroupUser
 from addons.models import (Addon, AddonDeviceType, AddonUpsell,
                            AddonUser, Category, Preview)
-from amo.tests import AMOPaths, app_factory
+from amo.tests import AMOPaths, app_factory, TestCase
 from files.models import FileUpload
 from market.models import Price, PriceCurrency
 from tags.models import AddonTag, Tag
 from users.models import UserProfile
 
-from mkt.api.base import get_url, list_url
 from mkt.api.models import Access, generate
-from mkt.api.tests.test_oauth import BaseOAuth, OAuthClient, RestOAuth
-from mkt.constants import carriers, ratingsbodies, regions
+from mkt.api.tests.test_oauth import RestOAuthClient, RestOAuth
+from mkt.constants import ratingsbodies, regions
+from mkt.webapps.api import LargeTextField
 from mkt.site.fixtures import fixture
 from mkt.webapps.models import AddonExcludedRegion, Webapp
 from reviews.models import Review
 
 
-class CreateHandler(BaseOAuth):
+class CreateHandler(RestOAuth):
     fixtures = fixture('user_2519', 'platform_all')
 
     def setUp(self):
         super(CreateHandler, self).setUp()
-        self.list_url = ('api_dispatch_list', {'resource_name': 'app'})
+        self.list_url = reverse('app-list')
         self.user = UserProfile.objects.get(pk=2519)
         self.file = tempfile.NamedTemporaryFile('w', suffix='.webapp').name
         self.manifest_copy_over(self.file, 'mozball-nice-slug.webapp')
@@ -40,6 +40,7 @@ class CreateHandler(BaseOAuth):
         for x in range(0, 2):
             self.categories.append(Category.objects.create(
                 name='cat-%s' % x,
+                slug='cat-%s' % x,
                 type=amo.ADDON_WEBAPP))
 
     def create(self, fil=None):
@@ -73,7 +74,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         obj = self.create()
         res = self.client.post(self.list_url,
                                data=json.dumps({'manifest': obj.uuid}))
-        eq_(res.status_code, 401)
+        eq_(res.status_code, 403)
 
     def test_not_valid(self):
         obj = self.create()
@@ -81,7 +82,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         res = self.client.post(self.list_url,
                                data=json.dumps({'manifest': obj.uuid}))
         eq_(res.status_code, 400)
-        eq_(self.get_error(res)['__all__'], ['Upload not valid.'])
+        eq_(res.json['detail'], 'Upload not valid.')
         eq_(self.count(), 0)
 
     def test_not_there(self):
@@ -89,7 +90,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
                                data=json.dumps({'manifest':
                                    'some-random-32-character-stringy'}))
         eq_(res.status_code, 400)
-        eq_(self.get_error(res)['__all__'], ['No upload found.'])
+        eq_(res.json['detail'], 'No upload found.')
         eq_(self.count(), 0)
 
     def test_anon(self):
@@ -108,7 +109,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         eq_(res.status_code, 403)
         eq_(self.count(), 0)
 
-    @patch('mkt.api.resources.record_action')
+    @patch('mkt.webapps.api.record_action')
     def test_create(self, record_action):
         obj = self.create()
         res = self.client.post(self.list_url,
@@ -129,8 +130,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         res = self.client.post(self.list_url,
                                data=json.dumps({'manifest': obj.uuid}))
         pk = json.loads(res.content)['id']
-        self.get_url = ('api_dispatch_detail',
-                        {'resource_name': 'app', 'pk': pk})
+        self.get_url = reverse('app-detail', kwargs={'pk': pk})
         return Webapp.objects.get(pk=pk)
 
     def test_upsell(self):
@@ -146,8 +146,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         eq_(obj['name'], upsell.name)
         eq_(obj['icon_url'], upsell.get_icon_url(128))
         eq_(obj['resource_uri'],
-            self.client.get_absolute_url(get_url('app', pk=upsell.id),
-                                         absolute=False))
+            reverse('app-detail', kwargs={'pk': upsell.id}))
 
     def test_get(self):
         self.create_app()
@@ -158,11 +157,10 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
 
     def test_get_slug(self):
         app = self.create_app()
-        url = ('api_dispatch_detail',
-               {'resource_name': 'app', 'app_slug': app.app_slug})
+        url = reverse('app-detail', kwargs={'pk': app.app_slug})
         res = self.client.get(url)
         content = json.loads(res.content)
-        eq_(content['id'], str(app.pk))
+        eq_(content['id'], app.pk)
 
     def test_list(self):
         app = self.create_app()
@@ -170,7 +168,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         eq_(res.status_code, 200)
         content = json.loads(res.content)
         eq_(content['meta']['total_count'], 1)
-        eq_(content['objects'][0]['id'], str(app.pk))
+        eq_(content['objects'][0]['id'], app.pk)
 
     def test_list_anon(self):
         eq_(self.anon.get(self.list_url).status_code, 403)
@@ -213,15 +211,15 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         app = self.create_app()
         data = self.base_data()
         self.client.put(self.get_url, data=json.dumps(data))
-        res = self.client.get(get_url('privacy', app.pk))
+        res = self.client.get(reverse('app-privacy-policy-detail',
+                                      args=[app.pk]))
         eq_(res.json['privacy_policy'], data['privacy_policy'])
 
     def test_get_privacy_policy_slug(self):
         app = self.create_app()
         data = self.base_data()
         self.client.put(self.get_url, data=json.dumps(data))
-        url = ('api_dispatch_detail',
-               {'resource_name': 'privacy', 'app_slug': app.app_slug})
+        url = reverse('app-privacy-policy-detail', kwargs={'pk': app.app_slug})
         res = self.client.get(url)
         eq_(res.json['privacy_policy'], data['privacy_policy'])
 
@@ -230,11 +228,11 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
                 'privacy_policy': 'wat',
                 'homepage': 'http://www.whatever.com',
                 'name': 'mozball',
-                'categories': [c.pk for c in self.categories],
+                'categories': [c.slug for c in self.categories],
                 'description': 'wat...',
                 'premium_type': 'free',
                 'regions': ['us'],
-                'device_types': amo.DEVICE_TYPES.keys()}
+                'device_types': amo.DEVICE_LOOKUP.keys()}
 
     def test_put(self):
         app = self.create_app()
@@ -269,27 +267,68 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
     def test_get_content_ratings(self):
         rating = ratingsbodies.CLASSIND_12
         app = self.create_app()
-        app.content_ratings.create(
-            ratings_body=ratingsbodies.CLASSIND.id,
-            rating=rating.id)
+        app.content_ratings.create(ratings_body=ratingsbodies.CLASSIND.id,
+                                   rating=rating.id)
         app.save()
 
         res = self.client.get(self.get_url)
         eq_(res.status_code, 200)
         data = json.loads(res.content)
-        cr = data.get('content_ratings')
+        cr = data.get('content_ratings')['ratings']
 
         self.assertIn('br', cr.keys())
-        eq_(len(cr['br']), 1)
-        eq_(cr['br'][0]['body'], 'CLASSIND')
-        eq_(cr['br'][0]['name'], rating.name)
-        eq_(cr['br'][0]['description'], unicode(rating.description))
+        eq_(cr['br']['body'], 'CLASSIND')
+        eq_(cr['br']['rating'], rating.name)
+        eq_(cr['br']['description'], unicode(rating.description))
+
+    def test_get_content_descriptors(self):
+        app = self.create_app()
+        app.set_descriptors(['has_esrb_blood', 'has_pegi_scary'])
+
+        res = self.client.get(self.get_url)
+        eq_(res.status_code, 200)
+        data = json.loads(res.content)
+
+        eq_(data['content_ratings']['descriptors'],
+            [{'label': 'esrb-blood', 'name': 'Blood', 'ratings_body': 'esrb'},
+             {'label': 'pegi-scary', 'name': 'Fear', 'ratings_body': 'pegi'}])
+
+    def test_get_interactive_elements(self):
+        app = self.create_app()
+        app.set_interactives(['has_social_networking', 'has_shares_info'])
+
+        res = self.client.get(self.get_url)
+        eq_(res.status_code, 200)
+        data = json.loads(res.content)
+
+        eq_(data['content_ratings']['interactive_elements'],
+            [{'label': 'shares-info', 'name': 'Shares Info'},
+             {'label': 'social-networking', 'name': 'Social Networking'}])
+
+    def test_post_content_ratings(self):
+        """Test the @action on AppViewSet to attach the content ratings."""
+        app = self.create_app()
+        url = reverse('app-content-ratings', kwargs={'pk': app.pk})
+        res = self.client.post(url, data=json.dumps(
+            {'submission_id': 50, 'security_code': 'AB12CD3'}))
+        eq_(res.status_code, 204)
+        eq_(res.content, '')
+
+    def test_post_content_ratings_bad(self):
+        """Test the @action on AppViewSet to attach the content ratings."""
+        app = self.create_app()
+        url = reverse('app-content-ratings', kwargs={'pk': app.pk})
+        # Missing `security_code`.
+        res = self.client.post(url, data=json.dumps({'submission_id': 50}))
+        eq_(res.status_code, 400)
+        eq_(json.loads(res.content),
+            {'security_code': ['This field is required.']})
 
     def test_dehydrate(self):
         app = self.create_app()
         res = self.client.put(self.get_url, data=json.dumps(self.base_data()))
         eq_(res.status_code, 202)
-        res = self.client.get(self.get_url)
+        res = self.client.get(self.get_url + '?lang=en')
         eq_(res.status_code, 200)
         data = json.loads(res.content)
         self.assertSetEqual(data['categories'],
@@ -322,13 +361,14 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
 
     def test_put_wrong_category(self):
         self.create_app()
-        wrong = Category.objects.create(name='wrong', type=amo.ADDON_EXTENSION,
+        wrong = Category.objects.create(name='wrong', slug='wrong',
+                                        type=amo.ADDON_EXTENSION,
                                         application_id=amo.FIREFOX.id)
         data = self.base_data()
-        data['categories'] = [wrong.pk]
+        data['categories'] = [wrong.slug]
         res = self.client.put(self.get_url, data=json.dumps(data))
         eq_(res.status_code, 400)
-        assert 'Select a valid choice' in self.get_error(res)['categories'][0]
+        assert 'does not exist' in res.json['categories'][0]
 
     def test_put_no_categories(self):
         self.create_app()
@@ -336,7 +376,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         del data['categories']
         res = self.client.put(self.get_url, data=json.dumps(data))
         eq_(res.status_code, 400)
-        eq_(self.get_error(res)['categories'], ['This field is required.'])
+        eq_(res.json['categories'], ['This field is required.'])
 
     def test_put_no_desktop(self):
         self.create_app()
@@ -344,7 +384,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         del data['device_types']
         res = self.client.put(self.get_url, data=json.dumps(data))
         eq_(res.status_code, 400)
-        eq_(self.get_error(res)['device_types'], ['This field is required.'])
+        eq_(res.json['device_types'], ['This field is required.'])
 
     def test_put_devices_worked(self):
         app = self.create_app()
@@ -362,8 +402,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         data['device_types'] = [12345]
         res = self.client.put(self.get_url, data=json.dumps(data))
         eq_(res.status_code, 400)
-        assert '12345' in self.get_error(res)['device_types'][0], (
-            self.get_error(res))
+        assert '12345' in res.json['device_types'][0], res.data
 
     def create_price(self, price):
         tier = Price.objects.create(price=price)
@@ -402,7 +441,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         data['price'] = "2.03"
         res = self.client.put(self.get_url, data=json.dumps(data))
         eq_(res.status_code, 400)
-        eq_(res.content,
+        eq_(res.json['price'][0],
             'Premium app specified without a valid price. Price can be one of '
             '"1.07", "3.14".')
 
@@ -414,7 +453,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         data['premium_type'] = 'premium'
         res = self.client.put(self.get_url, data=json.dumps(data))
         eq_(res.status_code, 400)
-        eq_(res.content,
+        eq_(res.json['price'][0],
             'Premium app specified without a valid price. Price can be one of '
             '"1.07", "3.14".')
 
@@ -449,7 +488,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         eq_(res.status_code, 403)
 
     def test_put_not_there(self):
-        url = ('api_dispatch_detail', {'resource_name': 'app', 'pk': 123})
+        url = reverse('app-detail', kwargs={'pk': 123})
         res = self.client.put(url, data='{}')
         eq_(res.status_code, 404)
 
@@ -473,7 +512,7 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         GroupUser.objects.create(group=g, user=editor)
         ac = Access.objects.create(key='adminOauthKey', secret=generate(),
                                    user=editor.user)
-        client = OAuthClient(ac, api_name='apps')
+        client = RestOAuthClient(ac)
         r = client.get(self.get_url)
         eq_(r.status_code, 200)
 
@@ -484,17 +523,17 @@ class TestAppCreateHandler(CreateHandler, AMOPaths):
         GroupUser.objects.create(group=g, user=admin)
         ac = Access.objects.create(key='adminOauthKey', secret=generate(),
                                    user=admin.user)
-        client = OAuthClient(ac, api_name='apps')
+        client = RestOAuthClient(ac)
         r = client.get(self.get_url)
         eq_(r.status_code, 200)
 
 
-class CreatePackagedHandler(amo.tests.AMOPaths, BaseOAuth):
+class CreatePackagedHandler(amo.tests.AMOPaths, RestOAuth):
     fixtures = fixture('user_2519', 'platform_all')
 
     def setUp(self):
         super(CreatePackagedHandler, self).setUp()
-        self.list_url = ('api_dispatch_list', {'resource_name': 'app'})
+        self.list_url = reverse('app-list')
         self.user = UserProfile.objects.get(pk=2519)
         self.file = tempfile.NamedTemporaryFile('w', suffix='.zip').name
         self.packaged_copy_over(self.file, 'mozball.zip')
@@ -548,7 +587,7 @@ class TestListHandler(CreateHandler, AMOPaths):
         res = self.client.get(self.list_url)
         data = json.loads(res.content)
         eq_(data['meta']['total_count'], 1)
-        eq_(data['objects'][0]['id'], str(apps[0].pk))
+        eq_(data['objects'][0]['id'], apps[0].pk)
 
     def test_multiple(self):
         apps = self.create_apps([2519], [999, 2519])
@@ -556,25 +595,26 @@ class TestListHandler(CreateHandler, AMOPaths):
         data = json.loads(res.content)
         eq_(data['meta']['total_count'], 2)
         pks = set([data['objects'][0]['id'], data['objects'][1]['id']])
-        eq_(pks, set([str(app.pk) for app in apps]))
+        eq_(pks, set([app.pk for app in apps]))
 
     def test_lang(self):
         app = app_factory(description={'fr': 'Le blah', 'en-US': 'Blah'})
-        url = get_url('app', app.pk)
+        url = reverse('app-detail', args=[app.pk])
 
-        res = self.client.get(url, HTTP_ACCEPT_LANGUAGE='en-US')
+        res = self.client.get(url + '?lang=en')
         eq_(json.loads(res.content)['description'], 'Blah')
 
-        res = self.client.get(url, HTTP_ACCEPT_LANGUAGE='fr')
+        res = self.client.get(url + '?lang=fr')
         eq_(json.loads(res.content)['description'], 'Le blah')
 
 
-class TestAppDetail(BaseOAuth, AMOPaths):
+class TestAppDetail(RestOAuth):
     fixtures = fixture('user_2519', 'webapp_337141')
 
     def setUp(self, api_name='apps'):
-        super(TestAppDetail, self).setUp(api_name=api_name)
-        self.get_url = get_url('app', pk=337141)
+        super(TestAppDetail, self).setUp()
+        self.app = Webapp.objects.get(pk=337141)
+        self.get_url = reverse('app-detail', kwargs={'pk': self.app.app_slug})
 
     def test_price(self):
         res = self.client.get(self.get_url)
@@ -592,18 +632,17 @@ class TestAppDetail(BaseOAuth, AMOPaths):
         appropriately drawn between attempts to access nonexistent apps and
         attempts to access apps that are unavailable due to legal restrictions.
         """
-        self.get_url[1]['pk'] = 1  # Not the PK of a real Webapp object
-        res = self.client.get(self.get_url)
+        url = reverse('app-detail', kwargs={'pk': 1})
+        res = self.client.get(url)
         eq_(res.status_code, 404)
 
     def test_nonregion(self):
-        app = Webapp.objects.get(pk=337141)
-        app.addonexcludedregion.create(region=regions.BR.id)
-        app.support_url = u'http://www.example.com/fake_support_url'
-        app.save()
+        self.app.addonexcludedregion.create(region=regions.BR.id)
+        self.app.support_url = u'http://www.example.com/fake_support_url'
+        self.app.save()
         res = self.client.get(self.get_url, data={'region': 'br'})
         eq_(res.status_code, 451)
-        data = json.loads(res.content)
+        data = json.loads(res.content)['detail']
         eq_(data['reason'], 'Not available in your region.')
         eq_(data['support_email'], '')
         eq_(data['support_url'], 'http://www.example.com/fake_support_url')
@@ -616,17 +655,17 @@ class TestAppDetail(BaseOAuth, AMOPaths):
         eq_(res.status_code, 200)
 
     def test_packaged_manifest_url(self):
-        app = Webapp.objects.get(pk=337141)
-        app.update(is_packaged=True)
-        res = self.client.get(self.get_url, pk=app.pk)
+        self.app.update(is_packaged=True)
+        res = self.client.get(self.get_url, pk=self.app.app_slug)
         data = json.loads(res.content)
-        eq_(app.get_manifest_url(), data['manifest_url'])
+        eq_(self.app.get_manifest_url(), data['manifest_url'])
 
     def test_user_info_with_shared_secret(self):
         def fakeauth(auth, req, **kw):
             req.amo_user = UserProfile.objects.get(id=self.user.pk)
+            req.user = self.user
             return True
-        with patch('mkt.api.authentication.SharedSecretAuthentication'
+        with patch('mkt.api.authentication.RestSharedSecretAuthentication'
                    '.is_authenticated', fakeauth):
             res = self.anon.get(self.get_url)
         assert 'user' in res.json
@@ -636,16 +675,14 @@ class TestAppDetail(BaseOAuth, AMOPaths):
         AddonUpsell.objects.create(premium_id=337141, free=free)
         res = self.client.get(self.get_url)
         eq_(res.json['upsold'],
-            self.client.get_absolute_url(get_url('app', pk=free.pk),
-                                         absolute=False))
+            reverse('app-detail', kwargs={'pk': free.pk}))
 
     def test_tags(self):
-        app = Webapp.objects.get(pk=337141)
         tag1 = Tag.objects.create(tag_text='example1')
         tag2 = Tag.objects.create(tag_text='example2')
-        AddonTag.objects.create(tag=tag1, addon=app)
-        AddonTag.objects.create(tag=tag2, addon=app)
-        res = self.client.get(self.get_url, pk=app.pk)
+        AddonTag.objects.create(tag=tag1, addon=self.app)
+        AddonTag.objects.create(tag=tag2, addon=self.app)
+        res = self.client.get(self.get_url, pk=self.app.app_slug)
         data = json.loads(res.content)
         eq_(data['tags'], ['example1', 'example2'])
 
@@ -680,7 +717,7 @@ class TestCategoryHandler(RestOAuth):
         eq_(data['meta']['total_count'], 0)
 
     def test_get_slug(self):
-        url = reverse('app-category-detail', kwargs={'slug': self.cat.slug})
+        url = reverse('app-category-detail', kwargs={'pk': self.cat.slug})
         res = self.client.get(url)
         data = json.loads(res.content)
         eq_(data['id'], self.cat.pk)
@@ -710,34 +747,6 @@ class TestCategoryHandler(RestOAuth):
         res = self.anon.get(reverse('app-category-detail',
                                     kwargs={'pk': self.other.pk}))
         eq_(res.status_code, 404)
-
-
-class TestRegionsCarriers(BaseOAuth, AMOPaths):
-
-    def setUp(self):
-        super(TestRegionsCarriers, self).setUp(api_name='services')
-
-    def test_regions_list(self):
-        res = self.client.get(list_url('region'))
-        data = json.loads(res.content)
-        eq_(set(r['slug'] for r in data['objects']),
-            set(r.slug for r in regions.ALL_REGIONS))
-
-    def test_region(self):
-        res = self.client.get(get_url('region', pk='co'))
-        data = json.loads(res.content)
-        eq_(data['default_currency'], regions.CO.default_currency)
-
-    def test_carriers_list(self):
-        res = self.client.get(list_url('carrier'))
-        data = json.loads(res.content)
-        eq_(set(r['slug'] for r in data['objects']),
-            set(r.slug for r in carriers.CARRIERS))
-
-    def test_carrier(self):
-        res = self.client.get(get_url('carrier', pk='telefonica'))
-        data = json.loads(res.content)
-        eq_(data['id'], carriers.TELEFONICA.id)
 
 
 class TestErrorReporter(RestOAuth):
@@ -820,12 +829,13 @@ class TestPriceTier(RestOAuth):
     fixtures = ['data/user_2519', 'data/admin', 'market/prices']
 
     def setUp(self):
+        self.permission = 'Prices:Edit'
         RestOAuth.setUp(self)
         self.list_url = reverse('price-tier-list')
         self.detail_url = reverse('price-tier-detail', kwargs={'pk': 1})
 
     def test_list(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.get(self.list_url)
         j = json.loads(res.content)
         eq_(len(j['objects']), 2)
@@ -838,7 +848,7 @@ class TestPriceTier(RestOAuth):
             })
 
     def test_detail(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.get(self.detail_url)
         j = json.loads(res.content)
         eq_(j, {
@@ -854,7 +864,7 @@ class TestPriceTier(RestOAuth):
         eq_(res.status_code, 403)
 
     def test_post_admin(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.post(
             self.list_url,
             json.dumps({'name': '3',
@@ -873,7 +883,7 @@ class TestPriceTier(RestOAuth):
         eq_(res.status_code, 403)
 
     def test_put(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.put(
             self.detail_url,
             json.dumps({'name': '1',
@@ -892,7 +902,7 @@ class TestPriceTier(RestOAuth):
         eq_(res.status_code, 403)
 
     def test_delete(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.delete(self.detail_url)
         eq_(res.status_code, 204)
         assert not Price.objects.filter(pk=1).exists()
@@ -902,13 +912,14 @@ class TestPriceCurrency(RestOAuth):
     fixtures = ['data/user_2519', 'data/admin', 'market/prices']
 
     def setUp(self):
+        self.permission = 'Prices:Edit'
         RestOAuth.setUp(self)
         self.list_url = reverse('price-currency-list')
         self.detail_url = reverse('price-currency-detail', kwargs={'pk': 1})
         self.tier_url = reverse('price-tier-detail', kwargs={'pk': 1})
 
     def test_list(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.get(self.list_url)
         j = json.loads(res.content)
         eq_(len(j['objects']), 6)
@@ -922,7 +933,7 @@ class TestPriceCurrency(RestOAuth):
             'tier': self.tier_url})
 
     def test_detail(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.get(self.detail_url)
         j = json.loads(res.content)
         eq_(j, {
@@ -940,7 +951,7 @@ class TestPriceCurrency(RestOAuth):
         eq_(res.status_code, 403)
 
     def test_post_admin(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.post(
             self.list_url,
             json.dumps({
@@ -964,7 +975,7 @@ class TestPriceCurrency(RestOAuth):
         eq_(res.status_code, 403)
 
     def test_put(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.put(
             self.detail_url,
             json.dumps({
@@ -986,7 +997,26 @@ class TestPriceCurrency(RestOAuth):
         eq_(res.status_code, 403)
 
     def test_delete(self):
-        self.grant_permission(self.profile, 'Admin:Adminner')
+        self.grant_permission(self.profile, self.permission)
         res = self.client.delete(self.detail_url)
         eq_(res.status_code, 204)
         assert not PriceCurrency.objects.filter(pk=1).exists()
+
+
+class TestLargeTextField(TestCase):
+    fixtures = fixture('webapp_337141')
+
+    def test_receive(self):
+        data = 'privacy policy text'
+        into = {}
+        field = LargeTextField(view_name='app-privacy-policy-detail')
+        field.field_from_native({'field_name': data}, None, 'field_name', into)
+        eq_(into['field_name'], data)
+
+    def test_send(self):
+        app = Webapp.objects.get(pk=337141)
+        app.privacy_policy = 'privacy policy text'
+        field = LargeTextField(view_name='app-privacy-policy-detail')
+        field.context = {'request': None}
+        url = field.field_to_native(app, None)
+        eq_(url, '/api/apps/app/337141/privacy/')

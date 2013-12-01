@@ -131,8 +131,8 @@ LANGUAGE_CODE = 'en-US'
 # permissions in the database.
 AMO_LANGUAGES = (
     'af', 'ar', 'bg', 'ca', 'cs', 'da', 'de', 'el', 'en-US', 'es', 'eu', 'fa',
-    'fi', 'fr', 'ga-IE', 'he', 'hu', 'id', 'it', 'ja', 'ko', 'mn', 'nl', 'pl',
-    'pt-BR', 'pt-PT', 'ro', 'ru', 'sk', 'sl', 'sq', 'sv-SE', 'uk', 'vi',
+    'fi', 'fr', 'ga-IE', 'he', 'hu', 'id', 'it', 'ja', 'ko', 'mk', 'mn', 'nl',
+    'pl', 'pt-BR', 'pt-PT', 'ro', 'ru', 'sk', 'sl', 'sq', 'sv-SE', 'uk', 'vi',
     'zh-CN', 'zh-TW',
 )
 
@@ -268,6 +268,12 @@ DUMPED_APPS_PATH = NETAPP_STORAGE + '/dumped-apps'
 
 # Tarballs in DUMPED_APPS_PATH deleted 30 days after they have been written.
 DUMPED_APPS_DAYS_DELETE = 3600 * 24 * 30
+
+# Where dumped apps will be written too.
+DUMPED_USERS_PATH = NETAPP_STORAGE + '/dumped-users'
+
+# Tarballs in DUMPED_USERS_PATH deleted 30 days after they have been written.
+DUMPED_USERS_DAYS_DELETE = 3600 * 24 * 30
 
 # paths that don't require an app prefix
 SUPPORTED_NONAPPS = ('about', 'admin', 'apps', 'blocklist', 'credits',
@@ -466,8 +472,6 @@ DOMAIN_METHODS = {
             'tower.management.commands.extract.extract_tower_template'),
         ('mkt/templates/**.html',
             'tower.management.commands.extract.extract_tower_template'),
-    ],
-    'lhtml': [
         ('**/templates/**.lhtml',
             'tower.management.commands.extract.extract_tower_template'),
     ],
@@ -1361,9 +1365,6 @@ FILE_UNZIP_SIZE_LIMIT = 104857600
 # How long to delay tasks relying on file system to cope with NFS lag.
 NFS_LAG_DELAY = 3
 
-# URL for reporting arecibo errors too. If not set, won't be sent.
-ARECIBO_SERVER_URL = ""
-
 # A whitelist of domains that the authentication script will redirect to upon
 # successfully logging in or out.
 VALID_LOGIN_REDIRECTS = {
@@ -1520,6 +1521,14 @@ GOOGLE_ANALYTICS_CREDENTIALS = {}
 #Which domain to access GA stats for. If not set, defaults to DOMAIN.
 GOOGLE_ANALYTICS_DOMAIN = None
 
+# Used for general web API access.
+GOOGLE_API_CREDENTIALS = ''
+
+# Google translate settings.
+GOOGLE_TRANSLATE_API_URL = 'https://www.googleapis.com/language/translate/v2'
+GOOGLE_TRANSLATE_REDIRECT_URL = (
+    'https://translate.google.com/#auto/{lang}/{text}')
+
 # Domain to allow cross-frame requests from for privacy policy and TOS.
 BROWSERID_DOMAIN = 'login.persona.org'
 
@@ -1566,9 +1575,8 @@ MONOLITH_SERVER = None
 MONOLITH_INDEX = 'time_*'
 MONOLITH_MAX_DATE_RANGE = 365
 
-# These are useful services, like error generation, getting settings and the
-# like. They should *not* be on in production.
-ALLOW_TASTYPIE_SERVICES = False
+# Error generation service. Should *not* be on in production.
+ENABLE_API_ERROR_SERVICE = False
 
 # The version we append to the app feature profile. Bump when we add new app
 # features to the `AppFeatures` model.
@@ -1597,3 +1605,16 @@ POSTFIX_DOMAIN = 'marketplace.firefox.com'
 AES_KEYS = {
     'api:access:secret': os.path.join(ROOT, 'mkt/api/sample-aes.key'),
 }
+
+# IARC content ratings.
+IARC_COMPANY = 'Mozilla'
+IARC_ENV = 'test'
+IARC_MOCK = False
+IARC_PASSWORD = ''
+IARC_PLATFORM = 'Firefox'
+IARC_SERVICE_ENDPOINT = ''
+IARC_STOREFRONT_ID = 4
+IARC_SUBMISSION_ENDPOINT = ''
+
+# The payment providers supported.
+PAYMENT_PROVIDERS = []

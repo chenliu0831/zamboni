@@ -28,7 +28,7 @@ from .models import AddonPaymentAccount, PaymentAccount
 log = commonware.log.getLogger('z.devhub')
 
 
-def _restore_app(app, save=True):
+def _restore_app_status(app, save=True):
     """
     Restore an incomplete app to its former status. The app will be marked
     as its previous status or PENDING if it was never reviewed.
@@ -265,8 +265,9 @@ class PremiumForm(DeviceTypeForm, happyforms.Form):
             except AddonPremium.DoesNotExist:
                 pass
 
-            if self.addon.status == amo.STATUS_NULL:
-                _restore_app(self.addon, save=False)
+            if (self.addon.status == amo.STATUS_NULL and
+                self.addon.is_fully_complete()):
+                _restore_app_status(self.addon, save=False)
 
             is_paid = False
 
@@ -430,7 +431,8 @@ class BangoPaymentAccountForm(happyforms.Form):
     read_only_fields = set(['bankAccountPayeeName', 'bankAccountNumber',
                             'bankAccountCode', 'bankName', 'bankAddress1',
                             'bankAddressZipCode', 'bankAddressIso',
-                            'adminEmailAddress', 'currencyIso'])
+                            'adminEmailAddress', 'currencyIso',
+                            'companyName'])
 
     def __init__(self, *args, **kwargs):
         self.account = kwargs.pop('account', None)
@@ -536,7 +538,14 @@ class BangoAccountListForm(happyforms.Form):
                 RereviewQueue.flag(
                     self.addon, amo.LOG.REREVIEW_PREMIUM_TYPE_UPGRADE)
 
-            _restore_app(self.addon)
+            if self.addon.is_fully_complete():
+                _restore_app_status(self.addon)
+
+
+class ReferenceAccountForm(happyforms.Form):
+    account_name = forms.CharField(max_length=50, label=_lazy(u'Account name'))
+    name = forms.CharField(max_length=50, label=_lazy(u'Name'))
+    email = forms.CharField(max_length=50, label=_lazy(u'Email'))
 
 
 class PaymentCheckForm(happyforms.Form):

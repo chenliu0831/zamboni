@@ -225,7 +225,7 @@ class TestBangoRedirect(TestCase):
         self.steamcube.update(premium_type=amo.ADDON_PREMIUM)
         self.account = setup_payment_account(self.steamcube, self.user)
         self.portal_url = reverse('lookup.bango_portal_from_package',
-            args=[self.account.payment_account.bango_package_id])
+            args=[self.account.payment_account.account_id])
         self.authentication_token = u'D0A44686-D4A3-4B2F-9BEB-5E4975E35192'
 
     @mock.patch('mkt.developers.views_payments.client.api')
@@ -474,7 +474,8 @@ class TestTransactionRefund(TestCase):
     def bango_ret(self, status):
         return {
             'status': status,
-            'transaction': 'transaction_uri'
+            'transaction': 'transaction_uri',
+            'uuid': 'some:uid'
         }
 
     def request(self, data):
@@ -492,7 +493,15 @@ class TestTransactionRefund(TestCase):
         req = self.request({'refund_reason': 'text', 'fake': 'OK'})
         with self.settings(BANGO_FAKE_REFUNDS=False):
             transaction_refund(req, self.uuid)
-        client.api.bango.refund.post.assert_called_with({'uuid': '123'})
+        client.api.bango.refund.post.assert_called_with(
+            {'uuid': '123', 'manual': False})
+
+    @mock.patch('mkt.lookup.views.client')
+    def test_manual_refund(self, client):
+        req = self.request({'refund_reason': 'text', 'manual': True})
+        transaction_refund(req, self.uuid)
+        client.api.bango.refund.post.assert_called_with(
+            {'uuid': '123', 'manual': True})
 
     @mock.patch('mkt.lookup.views.client')
     def test_fake_refund(self, client):
@@ -500,7 +509,8 @@ class TestTransactionRefund(TestCase):
         with self.settings(BANGO_FAKE_REFUNDS=True):
             transaction_refund(req, self.uuid)
         client.api.bango.refund.post.assert_called_with({
-            'fake_response_status': {'responseCode': 'OK'}, 'uuid': '123'})
+            'fake_response_status': {'responseCode': 'OK'},
+            'uuid': '123', 'manual': False})
 
     @mock.patch('mkt.lookup.views.client')
     def test_refund_success(self, solitude):

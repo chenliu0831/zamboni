@@ -4,9 +4,10 @@ import sys
 import time
 import traceback
 from collections import defaultdict
+from datetime import datetime
 
-from django import http
 from django import forms as django_forms
+from django import http
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -44,21 +45,22 @@ from versions.models import Version
 
 from mkt.api.models import Access, generate
 from mkt.developers.decorators import dev_required
-from mkt.developers.forms import (APIConsumerForm, AppFormBasic,
-                                  AppFormDetails, AppFormMedia,
-                                  AppFormSupport, AppFormTechnical,
-                                  AppVersionForm, CategoryForm,
+from mkt.developers.forms import (APIConsumerForm, AppFormBasic, AppFormDetails,
+                                  AppFormMedia, AppFormSupport,
+                                  AppFormTechnical, AppVersionForm,
+                                  CategoryForm, IARCGetAppInfoForm,
                                   NewPackagedAppForm, PreloadTestPlanForm,
                                   PreviewFormSet, TransactionFilterForm,
                                   trap_duplicate)
 from mkt.developers.models import PreloadTestPlan
-from mkt.developers.utils import check_upload
 from mkt.developers.tasks import run_validator, save_test_plan
+from mkt.developers.utils import check_upload
 from mkt.submit.forms import AppFeaturesForm, NewWebappVersionForm
+from mkt.webapps.models import IARCInfo, Webapp
 from mkt.webapps.tasks import _update_manifest, update_manifests
-from mkt.webapps.models import Webapp
 
 from . import forms, tasks
+
 
 log = commonware.log.getLogger('z.devhub')
 
@@ -130,8 +132,7 @@ def edit(request, addon_id, addon, webapp=False):
         'previews': addon.get_previews(),
         'version': addon.current_version or addon.latest_version
     }
-    if (waffle.switch_is_active('buchets') and not addon.is_packaged and
-        data['version']):
+    if not addon.is_packaged and data['version']:
         data['feature_list'] = [unicode(f) for f in
                                 data['version'].features.to_list()]
     if acl.action_allowed(request, 'Apps', 'Configure'):
@@ -195,6 +196,9 @@ def publicise(request, addon_id, addon):
         # Call to update names and locales if changed.
         addon.update_name_from_package_manifest()
         addon.update_supported_locales()
+
+        if waffle.switch_is_active('iarc'):
+            addon.set_iarc_storefront_data()
 
     return redirect(addon.get_dev_url('versions'))
 
@@ -278,6 +282,9 @@ def status(request, addon_id, addon, webapp=False):
             if (test_plan.last_submission <
                 settings.PREINSTALL_TEST_PLAN_LATEST):
                 ctx['outdated_test_plan'] = True
+            ctx['next_step_suffix'] = 'submit'
+        else:
+            ctx['next_step_suffix'] = 'home'
         ctx['test_plan'] = test_plan
 
     return jingo.render(request, 'developers/apps/status.html', ctx)
@@ -285,11 +292,47 @@ def status(request, addon_id, addon, webapp=False):
 
 @waffle_switch('iarc')
 @dev_required
-def ratings(request, addon_id, addon):
-    """IARC ratings."""
-    return jingo.render(request, 'developers/apps/ratings.html', {
-        'addon': addon,
-    })
+def content_ratings(request, addon_id, addon):
+    if not addon.is_rated():
+        return redirect(addon.get_dev_url('ratings_edit'))
+
+    return jingo.render(
+        request, 'developers/apps/ratings/ratings_summary.html', {
+            'addon': addon
+        })
+
+
+@waffle_switch('iarc')
+@dev_required
+def content_ratings_edit(request, addon_id, addon):
+    initial = {}
+    try:
+        app_info = addon.iarc_info
+        initial['submission_id'] = app_info.submission_id
+        initial['security_code'] = app_info.security_code
+    except IARCInfo.DoesNotExist:
+        pass
+
+    form = IARCGetAppInfoForm(data=request.POST or None, initial=initial)
+
+    if request.method == 'POST' and form.is_valid():
+        try:
+            form.save(addon)
+            messages.success(request, _('Content ratings successfully saved.'))
+            return redirect(addon.get_dev_url('ratings'))
+        except django_forms.ValidationError:
+            pass  # Fall through to show the form error.
+
+    with amo.utils.no_translation(addon.default_locale):
+        addon_delocalized = Addon.objects.get(pk=addon.pk)
+
+    return jingo.render(
+        request, 'developers/apps/ratings/ratings_edit.html', {
+            'addon': addon,
+            'app_name': addon_delocalized.name,
+            'form': form,
+            'now': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
 
 
 @waffle_switch('preload-apps')
@@ -299,7 +342,7 @@ def preload_home(request, addon_id, addon):
     Gives information on the preload process, links to test plan template.
     """
     return jingo.render(request, 'developers/apps/preload/home.html', {
-        'addon': addon,
+        'addon': addon
     })
 
 
@@ -337,13 +380,13 @@ def preload_submit(request, addon_id, addon, webapp):
 
     return jingo.render(request, 'developers/apps/preload/submit.html', {
         'addon': addon,
-        'form': form,
+        'form': form
     })
 
 
 @dev_required
 def version_edit(request, addon_id, addon, version_id):
-    show_features = waffle.switch_is_active('buchets') and addon.is_packaged
+    show_features = addon.is_packaged
     formdata = request.POST if request.method == 'POST' else None
     version = get_object_or_404(Version, pk=version_id, addon=addon)
     version.addon = addon  # Avoid extra useless query.
@@ -719,8 +762,7 @@ def addons_section(request, addon_id, addon, section, editable=False,
 
     elif section == 'technical':
         # Only show the list of features if app isn't packaged.
-        if (waffle.switch_is_active('buchets') and not addon.is_packaged and
-                section == 'technical'):
+        if not addon.is_packaged and section == 'technical':
             appfeatures = version.features
             formdata = request.POST if request.method == 'POST' else None
             appfeatures_form = AppFeaturesForm(formdata, instance=appfeatures)

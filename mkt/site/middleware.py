@@ -3,11 +3,11 @@ from types import MethodType
 
 from django import http
 from django.conf import settings
-from django.core import urlresolvers
 from django.http import HttpRequest, SimpleCookie
 from django.utils.cache import patch_vary_headers
 
 import tower
+from django_statsd.clients import statsd
 
 import amo
 from amo.urlresolvers import lang_from_accept_header, Prefixer
@@ -224,18 +224,13 @@ class DeviceDetectionMiddleware(object):
         return response
 
 
-class RestrictJSONUploadSizeMiddleware(object):
+class DoNotTrackTrackingMiddleware(object):
+    """A small middleware to record DNT counts."""
 
-    def process_view(self, request, view_func, args, kwargs):
-        if not kwargs == {'api_name': 'apps', 'resource_name': 'validation'}:
-            return
-        if (int(request.META.get('CONTENT_LENGTH', 0) or 0) >
-            mkt.constants.MAX_PACKAGED_APP_SIZE):
-            response = http.HttpResponse()
-            response.status_code = 413
-            response.content = json.dumps(
-                {'reason':
-                 'Packaged app too large for submission by this method. '
-                 'Packages must be smaller than %d bytes.' %
-                 mkt.constants.MAX_PACKAGED_APP_SIZE})
-            return response
+    def process_request(self, request):
+        if 'HTTP_DNT' not in request.META:
+            statsd.incr('z.mkt.dnt.unset')
+        elif request.META.get('HTTP_DNT') == '1':
+            statsd.incr('z.mkt.dnt.on')
+        else:
+            statsd.incr('z.mkt.dnt.off')

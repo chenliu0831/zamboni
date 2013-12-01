@@ -104,6 +104,7 @@ SOLITUDE_OAUTH = {'key': private_mkt.SOLITUDE_OAUTH_KEY,
 WEBAPPS_PUBLIC_KEY_DIRECTORY = NETAPP_STORAGE + '/public_keys'
 PRODUCT_ICON_PATH = NETAPP_STORAGE + '/product-icons'
 DUMPED_APPS_PATH = NETAPP_STORAGE + '/dumped-apps'
+DUMPED_USERS_PATH = NETAPP_STORAGE + '/dumped-users'
 
 GOOGLE_ANALYTICS_DOMAIN = 'marketplace.firefox.com'
 VALIDATOR_IAF_URLS = ['https://marketplace.firefox.com',
@@ -173,7 +174,7 @@ MONOLITH_PASSWORD = private_mkt.MONOLITH_PASSWORD
 # This is mainly for Marionette tests.
 WEBAPP_MANIFEST_NAME = 'Marketplace Stage'
 
-ALLOW_TASTYPIE_SERVICES = True
+ENABLE_API_ERROR_SERVICE = True
 
 NEWRELIC_INI = '/etc/newrelic.d/marketplace.allizom.org.ini'
 
@@ -186,8 +187,11 @@ BANGO_BASE_PORTAL_URL = 'https://mozilla.bango.com/login/al.aspx?'
 MONOLITH_INDEX = 'mktstage-time_*'
 
 # IARC content ratings.
-IARC_SUBMISSION_ENDPOINT = 'https://www.globalratings.com/IARCDEMORating/Submission.aspx'
-IARC_SERVICE_ENDPOINT = 'https://www.globalratings.com/IARCDEMOService/IARCServices.svc'
-IARC_PASSWORD = private_mkt.IARC_PASSWORD
-IARC_STOREFRONT_ID = 4
 IARC_COMPANY = 'Mozilla'
+IARC_ENV = 'test'
+IARC_MOCK = False
+IARC_PASSWORD = private_mkt.IARC_PASSWORD
+IARC_PLATFORM = 'Firefox'
+IARC_SERVICE_ENDPOINT = 'https://www.globalratings.com/IARCDEMOService/IARCServices.svc'
+IARC_STOREFRONT_ID = 4
+IARC_SUBMISSION_ENDPOINT = 'https://www.globalratings.com/IARCDEMORating/Submission.aspx'

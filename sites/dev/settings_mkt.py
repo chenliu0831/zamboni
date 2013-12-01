@@ -96,6 +96,7 @@ SENTRY_DSN = private_mkt.SENTRY_DSN
 WEBAPPS_PUBLIC_KEY_DIRECTORY = NETAPP_STORAGE + '/public_keys'
 PRODUCT_ICON_PATH = NETAPP_STORAGE + '/product-icons'
 DUMPED_APPS_PATH = NETAPP_STORAGE + '/dumped-apps'
+DUMPED_USERS_PATH = NETAPP_STORAGE + '/dumped-users'
 
 SOLITUDE_HOSTS = ('https://payments-dev.allizom.org',)
 SOLITUDE_OAUTH = {'key': private_mkt.SOLITUDE_OAUTH_KEY,
@@ -185,7 +186,7 @@ try:
 except AttributeError:
     pass
 
-ALLOW_TASTYPIE_SERVICES = True
+ENABLE_API_ERROR_SERVICE = True
 
 # Until Bango can properly do refunds.
 BANGO_FAKE_REFUNDS = True
@@ -209,8 +210,11 @@ PURCHASE_LIMITED = True
 MONOLITH_INDEX = 'mktdev-time_*'
 
 # IARC content ratings.
-IARC_SUBMISSION_ENDPOINT = 'https://www.globalratings.com/IARCDEMORating/Submission.aspx'
-IARC_SERVICE_ENDPOINT = 'https://www.globalratings.com/IARCDEMOService/IARCServices.svc'
-IARC_PASSWORD = private_mkt.IARC_PASSWORD
-IARC_STOREFRONT_ID = 4
 IARC_COMPANY = 'Mozilla'
+IARC_ENV = 'test'
+IARC_MOCK = False
+IARC_PASSWORD = private_mkt.IARC_PASSWORD
+IARC_PLATFORM = 'Firefox'
+IARC_SERVICE_ENDPOINT = 'https://www.globalratings.com/IARCDEMOService/IARCServices.svc'
+IARC_STOREFRONT_ID = 4
+IARC_SUBMISSION_ENDPOINT = 'https://www.globalratings.com/IARCDEMORating/Submission.aspx'

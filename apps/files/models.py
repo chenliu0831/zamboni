@@ -30,6 +30,7 @@ from applications.models import Application, AppVersion
 from amo.utils import memoize
 import devhub.signals
 from files.utils import SafeUnzip
+from tags.models import Tag
 from versions.compare import version_int as vint
 
 log = commonware.log.getLogger('z.files')
@@ -121,7 +122,7 @@ class File(amo.models.OnChangeMixin, amo.models.ModelBase):
 
         if attachment:
             host = posixpath.join(settings.LOCAL_MIRROR_URL, '_attachments')
-        elif addon.is_disabled or self.status == amo.STATUS_OBSOLETE:
+        elif addon.is_disabled or self.status == amo.STATUS_DISABLED:
             host = settings.PRIVATE_MIRROR_URL
         elif (addon.status == amo.STATUS_PUBLIC
               and not addon.disabled_by_user
@@ -157,6 +158,8 @@ class File(amo.models.OnChangeMixin, amo.models.ModelBase):
         f.size = storage.size(upload.path)
         data = cls.get_jetpack_metadata(upload.path)
         f.jetpack_version = data['sdkVersion']
+        if f.jetpack_version:
+            Tag(tag_text='jetpack').save_tag(version.addon)
         f.builder_version = data['builderVersion']
         f.no_restart = parse_data.get('no_restart', False)
         f.strict_compatibility = parse_data.get('strict_compatibility', False)
@@ -460,9 +463,9 @@ def check_file(old_attr, new_attr, instance, sender, **kw):
     if kw.get('raw'):
         return
     old, new = old_attr.get('status'), instance.status
-    if new == amo.STATUS_OBSOLETE and old != amo.STATUS_OBSOLETE:
+    if new == amo.STATUS_DISABLED and old != amo.STATUS_DISABLED:
         instance.hide_disabled_file()
-    elif old == amo.STATUS_OBSOLETE and new != amo.STATUS_OBSOLETE:
+    elif old == amo.STATUS_DISABLED and new != amo.STATUS_DISABLED:
         instance.unhide_disabled_file()
     elif (new in amo.MIRROR_STATUSES and old not in amo.MIRROR_STATUSES):
         instance.copy_to_mirror()
@@ -583,6 +586,10 @@ class FileUpload(amo.models.ModelBase):
         fu = FileUpload()
         fu.add_file(chunks, filename, size, is_webapp)
         return fu
+
+    @property
+    def processed(self):
+        return bool(self.valid or self.validation)
 
 
 class FileValidation(amo.models.ModelBase):

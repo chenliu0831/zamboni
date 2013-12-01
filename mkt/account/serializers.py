@@ -5,8 +5,13 @@ from rest_framework import fields, serializers
 from access import acl
 from users.models import UserProfile
 
-from mkt.api.base import CompatRelatedField
 from mkt.api.serializers import PotatoCaptchaSerializer
+
+
+class AccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = ('display_name',)
 
 
 class FeedbackSerializer(PotatoCaptchaSerializer):
@@ -55,35 +60,15 @@ class PermissionsSerializer(serializers.Serializer):
         return permissions
 
 
-class UserSerializer(serializers.ModelSerializer):
+class UserSerializer(AccountSerializer):
     """
     A wacky serializer type that unserializes PK numbers and
     serializes user fields.
     """
-    resource_uri = CompatRelatedField(
-        view_name='api_dispatch_detail', read_only=True,
-        tastypie={'resource_name': 'settings',
-                  'api_name': 'account'},
-        source='*')
+    resource_uri = serializers.HyperlinkedRelatedField(
+        view_name='account-settings', source='pk',
+        read_only=True)
 
     class Meta:
         model = UserProfile
         fields = ('display_name', 'resource_uri')
-
-    def field_from_native(self, data, files, field_name, into):
-        try:
-            value = data[field_name]
-        except KeyError:
-            if self.required:
-                raise serializers.ValidationError(
-                    self.error_messages['required'])
-            return
-        if value in (None, ''):
-            obj = None
-        else:
-            try:
-                obj = UserProfile.objects.get(pk=value)
-            except UserProfile.DoesNotExist:
-                msg = "Invalid pk '%s' - object does not exist." % (data,)
-                raise serializers.ValidationError(msg)
-        into[self.source or field_name] = obj

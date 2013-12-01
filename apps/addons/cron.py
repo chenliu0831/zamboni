@@ -292,7 +292,7 @@ def hide_disabled_files():
     # GUARDED_ADDONS_PATH so it's not publicly visible.
     q = (Q(version__addon__status=amo.STATUS_DISABLED)
          | Q(version__addon__disabled_by_user=True))
-    ids = (File.objects.filter(q | Q(status=amo.STATUS_OBSOLETE))
+    ids = (File.objects.filter(q | Q(status=amo.STATUS_DISABLED))
            .values_list('id', flat=True))
     for chunk in chunked(ids, 300):
         qs = File.objects.no_cache().filter(id__in=chunk)
@@ -308,7 +308,7 @@ def unhide_disabled_files():
     log = logging.getLogger('z.files.disabled')
     q = (Q(version__addon__status=amo.STATUS_DISABLED)
          | Q(version__addon__disabled_by_user=True))
-    files = set(File.objects.filter(q | Q(status=amo.STATUS_OBSOLETE))
+    files = set(File.objects.filter(q | Q(status=amo.STATUS_DISABLED))
                 .values_list('version__addon', 'filename'))
     for filepath in path.path(settings.GUARDED_ADDONS_PATH).walkfiles():
         addon, filename = filepath.split('/')[-2:]
@@ -337,8 +337,9 @@ def deliver_hotness():
     b = avg(users three weeks before this week)
     hotness = (a-b) / b if a > 1000 and b > 1 else 0
     """
-    frozen = [f.id for f in FrozenAddon.objects.all()]
+    frozen = set(f.id for f in FrozenAddon.objects.all())
     all_ids = list((Addon.objects.exclude(type=amo.ADDON_PERSONA)
+                   .exclude(type=amo.ADDON_WEBAPP)
                    .values_list('id', flat=True)))
     now = datetime.now()
     one_week = now - timedelta(days=7)

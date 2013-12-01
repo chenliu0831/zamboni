@@ -285,6 +285,17 @@ class TestPremiumForm(amo.tests.TestCase):
 
         self.assertSetEqual(self.addon.device_types, [amo.DEVICE_MOBILE])
 
+    def test_can_change_devices_for_android_app_behind_flag(self):
+        self.create_flag('android-payments')
+        data = {'paid_platforms': ['paid-firefoxos', 'paid-android-mobile'],
+                'price': 'free', 'allow_inapp': 'True'}
+        self.make_premium(self.addon)
+        form = forms_payments.PremiumForm(data=data, **self.kwargs)
+        assert form.is_valid(), form.errors
+        form.save()
+        self.assertSetEqual(self.addon.device_types, [amo.DEVICE_MOBILE,
+                                                      amo.DEVICE_GAIA])
+
     def test_initial(self):
         form = forms_payments.PremiumForm(**self.kwargs)
         eq_(form._initial_price_id(), Price.objects.get(price='0.99').pk)
@@ -323,7 +334,7 @@ class TestBangoAccountListForm(amo.tests.TestCase):
 
         data = dict(user=user, uri='asdf-%s' % user.pk, name='test',
                     inactive=False, solitude_seller=seller,
-                    seller_uri='suri-%s' % user.pk, bango_package_id=123,
+                    seller_uri='suri-%s' % user.pk, account_id=123,
                     agreed_tos=True, shared=False)
         data.update(**kwargs)
         return models.PaymentAccount.objects.create(**data)
@@ -530,7 +541,7 @@ class TestPaidRereview(amo.tests.TestCase):
 
         self.account = models.PaymentAccount.objects.create(
             user=self.user, uri='asdf', name='test', inactive=False,
-            solitude_seller=seller, bango_package_id=123, agreed_tos=True)
+            solitude_seller=seller, account_id=123, agreed_tos=True)
 
         self.kwargs = {
             'addon': self.addon,
@@ -588,7 +599,7 @@ class TestPaidRereview(amo.tests.TestCase):
         eq_(RereviewQueue.objects.count(), 0)
 
 
-class TestRestoreApp(amo.tests.TestCase):
+class TestRestoreAppStatus(amo.tests.TestCase):
     fixtures = fixture('webapp_337141')
 
     def setUp(self):
@@ -597,12 +608,12 @@ class TestRestoreApp(amo.tests.TestCase):
 
     def test_to_public(self):
         self.addon.highest_status = amo.STATUS_PUBLIC
-        forms_payments._restore_app(self.addon)
+        forms_payments._restore_app_status(self.addon)
         eq_(self.addon.status, amo.STATUS_PUBLIC)
 
     def test_to_null(self):
         self.addon.highest_status = amo.STATUS_NULL
-        forms_payments._restore_app(self.addon)
+        forms_payments._restore_app_status(self.addon)
         # Apps without a highest status default to PENDING.
         eq_(self.addon.status, amo.STATUS_PENDING)
 

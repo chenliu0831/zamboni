@@ -7,11 +7,14 @@ from django.contrib.auth.models import AnonymousUser
 from mock import Mock, patch
 from multidb import this_thread_is_pinned
 from nose.tools import eq_, ok_
+from rest_framework.request import Request
 from tastypie.exceptions import ImmediateHttpResponse
 
 from access.models import Group, GroupUser
 from addons.models import AddonUser
+from amo.helpers import absolutify
 from amo.tests import app_factory, TestCase
+from amo.urlresolvers import reverse
 from test_utils import RequestFactory
 from users.models import UserProfile
 
@@ -94,15 +97,14 @@ class TestOAuthAuthentication(TestCase):
                                             user=self.profile.user)
 
     def call(self, client=None):
-        url = ('api_dispatch_list', {'resource_name': 'app'})
         client = client or OAuthClient(self.access)
-        url = client.get_absolute_url(url)
+        url = absolutify(reverse('app-list'))
         return RequestFactory().get(url,
-                 HTTP_HOST='testserver',
-                 HTTP_AUTHORIZATION=client.sign('GET', url)[1]['Authorization'])
+            HTTP_HOST='testserver',
+            HTTP_AUTHORIZATION=client.sign('GET', url)[1]['Authorization'])
 
     def test_accepted(self):
-        req = self.call()
+        req = Request(self.call())
         ok_(self.auth.is_authenticated(req))
         if req.method in ['DELETE', 'PATCH', 'POST', 'PUT']:
             ok_(this_thread_is_pinned())
@@ -140,7 +142,7 @@ class TestRestOAuthAuthentication(TestOAuthAuthentication):
         self.auth = authentication.RestOAuthAuthentication()
 
     def test_accepted(self):
-        req = self.call()
+        req = Request(self.call())
         eq_(self.auth.authenticate(req), (self.profile.user, None))
         if req.method in ['DELETE', 'PATCH', 'POST', 'PUT']:
             ok_(this_thread_is_pinned())
@@ -151,15 +153,16 @@ class TestRestOAuthAuthentication(TestOAuthAuthentication):
         c = Mock()
         c.key = self.access.key
         c.secret = 'mom'
-        ok_(not self.auth.authenticate(self.call(client=OAuthClient(c))))
+        ok_(not self.auth.authenticate(
+            Request(self.call(client=OAuthClient(c)))))
 
     def test_request_admin(self):
         self.add_group_user(self.profile, 'Admins')
-        ok_(not self.auth.authenticate(self.call()))
+        ok_(not self.auth.authenticate(Request(self.call())))
 
     def test_request_has_role(self):
         self.add_group_user(self.profile, 'App Reviewers')
-        ok_(self.auth.authenticate(self.call()))
+        ok_(self.auth.authenticate(Request(self.call())))
 
 
 class TestRestAnonymousAuthentication(TestCase):
@@ -270,7 +273,7 @@ class TestMultipleAuthentication(TestCase):
             '121c5c165f3515838d4d6c60c4,165d631d3c3045'
             '458b4516242dad7ae')
         self.resource._meta.authentication = (
-                authentication.SharedSecretAuthentication())
+                authentication.SharedSecretAuthentication(),)
         eq_(self.resource.is_authenticated(req), None)
         eq_(self.profile.user.pk, req.amo_user.pk)
 
@@ -285,7 +288,8 @@ class TestMultipleAuthentication(TestCase):
         eq_(self.resource.is_authenticated(req), None)
 
     def test_multiple_fails(self):
-        client = OAuthClient(Mock(key='test_oauth_key', secret='test_oauth_secret'))
+        client = OAuthClient(Mock(key='test_oauth_key',
+                                  secret='test_oauth_secret'))
         req = RequestFactory().get(
             '/',
             HTTP_HOST='testserver',
@@ -302,3 +306,50 @@ class TestMultipleAuthentication(TestCase):
             eq_(self.resource.is_authenticated(req), None)
         # This never even got called.
         ok_(not next_auth.is_authenticated.called)
+
+
+@patch.object(settings, 'SECRET_KEY', 'gubbish')
+class TestMultipleAuthenticationDRF(TestCase):
+    fixtures = fixture('user_2519')
+
+    def setUp(self):
+        self.profile = UserProfile.objects.get(pk=2519)
+        self.profile.update(email=self.profile.user.email)
+
+    def test_multiple_shared_works(self):
+        request = RequestFactory().get(
+            '/',
+            HTTP_AUTHORIZATION='mkt-shared-secret '
+            'cfinke@m.com,56b6f1a3dd735d962c56'
+            'ce7d8f46e02ec1d4748d2c00c407d75f0969d08bb'
+            '9c68c31b3371aa8130317815c89e5072e31bb94b4'
+            '121c5c165f3515838d4d6c60c4,165d631d3c3045'
+            '458b4516242dad7ae')
+        drf_request = Request(request)
+
+        # Start with an AnonymousUser on the request, because that's a classic
+        # situation: we already went through a middleware, it didn't find a
+        # session cookie, if set request.user = AnonymousUser(), and now we
+        # are going through the authentication code in the API.
+        request.user = AnonymousUser()
+        drf_request.authenticators = (
+                authentication.RestSharedSecretAuthentication(),
+                authentication.RestOAuthAuthentication())
+
+        eq_(drf_request.user, self.profile.user)
+        eq_(drf_request._request.user, self.profile.user)
+        eq_(drf_request.user.is_authenticated(), True)
+        eq_(drf_request._request.user.is_authenticated(), True)
+        eq_(drf_request.amo_user.pk, self.profile.pk)
+        eq_(drf_request._request.amo_user.pk, self.profile.pk)
+
+    def test_multiple_fail(self):
+        request = RequestFactory().get('/')
+        drf_request = Request(request)
+        request.user = AnonymousUser()
+        drf_request.authenticators = (
+                authentication.RestSharedSecretAuthentication(),
+                authentication.RestOAuthAuthentication())
+
+        eq_(drf_request.user.is_authenticated(), False)
+        eq_(drf_request._request.user.is_authenticated(), False)

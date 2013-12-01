@@ -10,6 +10,7 @@ from tower import ugettext_lazy as _lazy, ugettext as _
 
 import amo
 from amo.urlresolvers import reverse
+from constants.payments import PROVIDER_BANGO, PROVIDER_CHOICES
 from lib.crypto import generate_key
 from lib.pay_server import client
 from mkt.constants.payments import ACCESS_PURCHASE, ACCESS_SIMULATE
@@ -48,7 +49,7 @@ class SolitudeSeller(amo.models.ModelBase):
         obj = cls.objects.create(user=user, uuid=uuid_, resource_uri=uri)
 
         log.info('[User:%s] Created Solitude seller (uuid:%s)' %
-                     (user, uuid_))
+                 (user, uuid_))
         return obj
 
 
@@ -63,15 +64,18 @@ class PaymentAccount(amo.models.ModelBase):
     uri = models.CharField(max_length=255, unique=True)
     # A soft-delete so we can talk to Solitude asynchronously.
     inactive = models.BooleanField(default=False)
-    bango_package_id = models.IntegerField(blank=True, null=True)
-
+    # The id for this account from the provider.
+    account_id = models.IntegerField(blank=True, null=True)
+    # Each account will be for a particular provider.
+    provider = models.IntegerField(choices=PROVIDER_CHOICES,
+                                   default=PROVIDER_BANGO)
     shared = models.BooleanField(default=False)
 
     BANGO_PACKAGE_VALUES = (
         'adminEmailAddress', 'supportEmailAddress', 'financeEmailAddress',
         'paypalEmailAddress', 'vendorName', 'companyName', 'address1',
-        'addressCity', 'addressState', 'addressZipCode', 'addressPhone',
-        'countryIso', 'currencyIso', 'vatNumber')
+        'address2', 'addressCity', 'addressState', 'addressZipCode',
+        'addressPhone', 'countryIso', 'currencyIso', 'vatNumber')
     BANGO_BANK_DETAILS_VALUES = (
         'seller_bango', 'bankAccountPayeeName', 'bankAccountNumber',
         'bankAccountCode', 'bankName', 'bankAddress1', 'bankAddressZipCode',
@@ -80,40 +84,6 @@ class PaymentAccount(amo.models.ModelBase):
     class Meta:
         db_table = 'payment_accounts'
         unique_together = ('user', 'uri')
-
-    @classmethod
-    def create_bango(cls, user, form_data):
-        # Get the seller object.
-        user_seller = SolitudeSeller.create(user)
-
-        # Get the data together for the package creation.
-        package_values = dict((k, v) for k, v in form_data.items() if
-                              k in cls.BANGO_PACKAGE_VALUES)
-        # Dummy value since we don't really use this.
-        package_values.setdefault('paypalEmailAddress', 'nobody@example.com')
-        package_values['seller'] = user_seller.resource_uri
-
-        log.info('[User:%s] Creating Bango package' % user)
-        res = client.api.bango.package.post(data=package_values)
-        uri = res['resource_uri']
-
-        # Get the data together for the bank details creation.
-        bank_details_values = dict((k, v) for k, v in form_data.items() if
-                                   k in cls.BANGO_BANK_DETAILS_VALUES)
-        bank_details_values['seller_bango'] = uri
-
-        log.info('[User:%s] Creating Bango bank details' % user)
-        client.api.bango.bank.post(data=bank_details_values)
-
-        obj = cls.objects.create(user=user, uri=uri,
-                                 solitude_seller=user_seller,
-                                 seller_uri=user_seller.resource_uri,
-                                 bango_package_id=res['package_id'],
-                                 name=form_data['account_name'])
-
-        log.info('[User:%s] Created Bango payment account (uri: %s)' %
-                     (user, uri))
-        return obj
 
     def cancel(self, disable_refs=False):
         """Cancels the payment account.
@@ -179,7 +149,7 @@ class PaymentAccount(amo.models.ModelBase):
 
     def get_lookup_portal_url(self):
         return reverse('lookup.bango_portal_from_package',
-                       args=[self.bango_package_id])
+                       args=[self.account_id])
 
 
 class AddonPaymentAccount(amo.models.ModelBase):
@@ -228,10 +198,11 @@ class AddonPaymentAccount(amo.models.ModelBase):
 
     @classmethod
     def _create_bango(cls, product_uri, addon, payment_account, secret):
-        if not payment_account.bango_package_id:
+        if not payment_account.account_id:
             raise NotImplementedError('Currently we only support Bango '
                                       'so the associated account must '
-                                      'have a bango_package_id')
+                                      'have a account_id')
+
         res = None
         if product_uri:
             data = {'seller_product': uri_to_pk(product_uri)}
@@ -239,69 +210,16 @@ class AddonPaymentAccount(amo.models.ModelBase):
                 res = client.api.bango.product.get_object(**data)
             except ObjectDoesNotExist:
                 # The product does not exist in Solitude so create it.
-                res = client.api.bango.product.post(data={
+                res = client.api.provider.bango.product.post(data={
                     'seller_bango': payment_account.uri,
                     'seller_product': product_uri,
                     'name': unicode(addon.name),
-                    'packageId': payment_account.bango_package_id,
+                    'packageId': payment_account.account_id,
                     'categoryId': 1,
                     'secret': secret
                 })
 
-        product_uri = res['resource_uri']
-        bango_number = res['bango_id']
-
-        # If the app is already premium this does nothing.
-        if addon.premium_type != amo.ADDON_FREE_INAPP:
-            cls._push_bango_premium(bango_number, product_uri,
-                                    addon.addonpremium.price.price)
-
-        return product_uri
-
-    @classmethod
-    def _push_bango_premium(cls, bango_number, product_uri, price):
-        if price != 0:
-            # Make the Bango product premium.
-            client.api.bango.premium.post(
-                data={'bango': bango_number,
-                      'price': price,
-                      'currencyIso': 'USD',
-                      'seller_product_bango': product_uri})
-
-        # Update the Bango rating.
-        client.api.bango.rating.post(
-            data={'bango': bango_number,
-                  'rating': 'UNIVERSAL',
-                  'ratingScheme': 'GLOBAL',
-                  'seller_product_bango': product_uri})
-        # Bug 836865.
-        client.api.bango.rating.post(
-            data={'bango': bango_number,
-                  'rating': 'GENERAL',
-                  'ratingScheme': 'USA',
-                  'seller_product_bango': product_uri})
-
-        return product_uri
-
-    def update_price(self, new_price):
-        if self.provider == 'bango':
-            # Get the Bango number for this product.
-            res = client.api.by_url(self.product_uri).get_object()
-            bango_number = res['bango_id']
-
-            AddonPaymentAccount._push_bango_premium(
-                bango_number, self.product_uri, new_price)
-
-    def delete(self):
-        if self.provider == 'bango':
-            # TODO(solitude): Once solitude supports DeleteBangoNumber, that
-            # goes here.
-            # ...also, make it a (celery) task.
-
-            # client.delete_product_bango(self.product_uri)
-            pass
-
-        super(AddonPaymentAccount, self).delete()
+        return res['resource_uri']
 
 
 class UserInappKey(amo.models.ModelBase):

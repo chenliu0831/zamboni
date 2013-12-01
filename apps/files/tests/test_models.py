@@ -123,7 +123,7 @@ class TestFile(amo.tests.TestCase, amo.tests.AMOPaths):
         f.save()
         assert not hide_mock.called
 
-        f.status = amo.STATUS_OBSOLETE
+        f.status = amo.STATUS_DISABLED
         f.save()
         assert hide_mock.called
 
@@ -135,7 +135,7 @@ class TestFile(amo.tests.TestCase, amo.tests.AMOPaths):
         assert not unhide_mock.called
 
         f = File.objects.get(pk=67442)
-        f.status = amo.STATUS_OBSOLETE
+        f.status = amo.STATUS_DISABLED
         f.save()
         assert not unhide_mock.called
 
@@ -162,7 +162,7 @@ class TestFile(amo.tests.TestCase, amo.tests.AMOPaths):
                 fp.write('<pretend this is an xpi>')
             with storage.open(fo.mirror_file_path, 'wb') as fp:
                 fp.write('<pretend this is an xpi>')
-            fo.status = amo.STATUS_OBSOLETE
+            fo.status = amo.STATUS_DISABLED
             fo.save()
             assert not storage.exists(fo.file_path), 'file not hidden'
             assert not storage.exists(fo.mirror_file_path), (
@@ -317,7 +317,7 @@ class TestFile(amo.tests.TestCase, amo.tests.AMOPaths):
 
     def test_disabled_is_not_testable(self):
         f = File.objects.get(pk=67442)
-        f.update(status=amo.STATUS_OBSOLETE)
+        f.update(status=amo.STATUS_DISABLED)
         eq_(f.can_be_perf_tested(), False)
 
     def test_deleted_addon_is_not_testable(self):
@@ -334,7 +334,7 @@ class TestFile(amo.tests.TestCase, amo.tests.AMOPaths):
         f = File.objects.get(pk=67442)
         eq_(f.is_mirrorable(), True)
 
-        f.update(status=amo.STATUS_OBSOLETE)
+        f.update(status=amo.STATUS_DISABLED)
         eq_(f.is_mirrorable(), False)
 
     def test_premium_addon_not_mirrorable(self):
@@ -692,6 +692,7 @@ class TestFileFromUpload(UploadTest):
         file_ = File.objects.get(id=f.id)
         eq_(file_.jetpack_version, '1.0b4')
         eq_(file_.builder_version, None)
+        eq_(['jetpack'], [t.tag_text for t in self.addon.tags.all()])
 
     def test_jetpack_builder_version(self):
         upload = self.upload('jetpack_builder')
@@ -705,6 +706,7 @@ class TestFileFromUpload(UploadTest):
         file_ = File.objects.get(id=f.id)
         eq_(file_.jetpack_version, None)
         eq_(file_.builder_version, None)
+        assert not self.addon.tags.exists()
 
     def test_filename(self):
         upload = self.upload('jetpack')
@@ -736,6 +738,12 @@ class TestFileFromUpload(UploadTest):
 
     def test_no_restart_true(self):
         upload = self.upload('jetpack')
+        d = parse_addon(upload.path)
+        f = File.from_upload(upload, self.version, self.platform, parse_data=d)
+        assert f.no_restart
+
+    def test_no_restart_dictionary(self):
+        upload = self.upload('dictionary-explicit-type-test')
         d = parse_addon(upload.path)
         f = File.from_upload(upload, self.version, self.platform, parse_data=d)
         assert f.no_restart
@@ -846,6 +854,7 @@ class TestFileFromUpload(UploadTest):
         upload = self.upload('extension.xpi')
         f = File.from_upload(upload, self.version, self.platform)
         eq_(f.filename.endswith('.xpi'), True)
+        assert not self.addon.tags.exists()
 
     def test_langpack_extension(self):
         upload = self.upload('langpack.xpi')

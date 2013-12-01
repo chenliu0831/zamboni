@@ -25,7 +25,7 @@ import mkt
 from mkt.developers.models import (AddonPaymentAccount, PaymentAccount,
                                    SolitudeSeller, uri_to_pk, UserInappKey)
 from mkt.site.fixtures import fixture
-from mkt.webapps.models import AddonExcludedRegion as AER, ContentRating
+from mkt.webapps.models import AddonExcludedRegion as AER
 
 # Id without any significance but to be different of 1.
 TEST_PACKAGE_ID = 2
@@ -36,7 +36,7 @@ def setup_payment_account(app, user, uid='uid', package_id=TEST_PACKAGE_ID):
     payment = PaymentAccount.objects.create(user=user, solitude_seller=seller,
                                             agreed_tos=True, seller_uri=uid,
                                             uri=uid,
-                                            bango_package_id=package_id)
+                                            account_id=package_id)
     return AddonPaymentAccount.objects.create(addon=app,
         product_uri='/path/to/%s/' % app.pk, account_uri=payment.uri,
         payment_account=payment)
@@ -289,9 +289,7 @@ class TestPayments(amo.tests.TestCase):
     def test_check_api_url_in_context(self):
         self.webapp.update(premium_type=amo.ADDON_FREE)
         res = self.client.get(self.url)
-        eq_(res.context['api_pricelist_url'],
-            reverse('api_dispatch_list', kwargs={'resource_name': 'prices',
-                                                 'api_name': 'webpay'}))
+        eq_(res.context['api_pricelist_url'], reverse('price-list'))
 
     def test_regions_display_free(self):
         self.webapp.update(premium_type=amo.ADDON_FREE)
@@ -464,7 +462,7 @@ class TestPayments(amo.tests.TestCase):
         acct = PaymentAccount.objects.create(
             user=user, uri='asdf-%s' % user.pk, name='test', inactive=False,
             seller_uri='suri-%s' % user.pk, solitude_seller=seller,
-            bango_package_id=123, agreed_tos=True)
+            account_id=123, agreed_tos=True)
         return acct, api, user
 
     def is_owner(self, user):
@@ -500,11 +498,10 @@ class TestPayments(amo.tests.TestCase):
                                          'accounts': acct.pk,
                                          'regions': ALL_REGION_IDS}),
                                          follow=True)
-        eq_(api.bango.premium.post.call_count, 1)
         self.assertNoFormErrors(res)
         eq_(res.status_code, 200)
         eq_(self.webapp.app_payment_account.payment_account.pk, acct.pk)
-        kw = api.bango.product.post.call_args[1]['data']
+        kw = api.provider.bango.product.post.call_args[1]['data']
         ok_(kw['secret'], kw)
         kw = api.generic.product.post.call_args[1]['data']
         eq_(kw['access'], ACCESS_PURCHASE)
@@ -700,6 +697,14 @@ class TestPayments(amo.tests.TestCase):
         self.portal_url = self.webapp.get_dev_url(
                                'payments.bango_portal_from_addon')
 
+    def test_template_switches(self):
+        payments_url = self.webapp.get_dev_url('payments')
+        with self.settings(PAYMENT_PROVIDERS=['reference']):
+            res = self.client.get(payments_url)
+        tmpl = self.extract_script_template(res.content,
+                                            '#payment-account-add-template')
+        eq_(len(tmpl('.payment-account-reference')), 1)
+
     def test_bango_portal_links(self):
         payments_url = self.webapp.get_dev_url('payments')
         res = self.client.get(payments_url)
@@ -769,6 +774,21 @@ class TestPayments(amo.tests.TestCase):
         res = self.client.get(self.portal_url)
         eq_(res.status_code, 403)
 
+    def test_device_checkboxes_present_with_android_payments(self):
+        self.create_flag('android-payments')
+        self.webapp.update(premium_type=amo.ADDON_PREMIUM)
+        res = self.client.get(self.url)
+        pqr = pq(res.content)
+        eq_(len(pqr('#paid-android-mobile input[type="checkbox"]')), 1)
+        eq_(len(pqr('#paid-android-tablet input[type="checkbox"]')), 1)
+
+    def test_device_checkboxes_not_present_without_android_payments(self):
+        self.webapp.update(premium_type=amo.ADDON_PREMIUM)
+        res = self.client.get(self.url)
+        pqr = pq(res.content)
+        eq_(len(pqr('#paid-android-mobile input[type="checkbox"]')), 0)
+        eq_(len(pqr('#paid-android-tablet input[type="checkbox"]')), 0)
+
 
 class TestRegions(amo.tests.TestCase):
     fixtures = ['base/apps', 'base/users', 'webapps/337141-steamcube']
@@ -817,17 +837,14 @@ class TestRegions(amo.tests.TestCase):
         self.assertNoFormErrors(r)
 
         td = pq(r.content)('#regions')
-        eq_(td.find('div[data-disabled-regions]')
-              .attr('data-disabled-regions'),
-            '[%d, %d]' % (mkt.regions.BR.id, mkt.regions.DE.id))
+        disabled_regions = json.loads(td.find('div[data-disabled-regions]')
+              .attr('data-disabled-regions'))
+        assert mkt.regions.BR.id in disabled_regions
+        assert mkt.regions.DE.id in disabled_regions
         eq_(td.find('.note.disabled-regions').length, 1)
 
     def test_games_form_enabled_with_content_rating(self):
-        for region in (mkt.regions.BR, mkt.regions.DE):
-            rb = region.ratingsbodies[0]
-            ContentRating.objects.create(
-                addon=self.webapp, ratings_body=rb.id, rating=rb.ratings[0].id)
-
+        amo.tests.make_game(self.webapp, True)
         games = Category.objects.create(type=amo.ADDON_WEBAPP, slug='games')
         AddonCategory.objects.create(addon=self.webapp, category=games)
 
@@ -876,7 +893,8 @@ class TestPaymentAccountsAdd(PaymentsBase):
         self.assertLoginRequired(self.client.post(self.url, data={}))
 
     @mock.patch('mkt.developers.models.client')
-    def test_create(self, client):
+    @mock.patch('mkt.developers.providers.Bango.client')
+    def test_create(self, models, providers):
         res = self.client.post(self.url, data={
             'bankAccountPayeeName': 'name',
             'companyName': 'company',
@@ -899,6 +917,7 @@ class TestPaymentAccountsAdd(PaymentsBase):
             'bankAddressIso': 'BRA',
             'account_name': 'account'
         })
+        eq_(res.status_code, 200)
         output = json.loads(res.content)
         ok_('pk' in output)
         ok_('agreement-url' in output)

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import datetime
+import hashlib
 import json
 import os
 import urlparse
@@ -32,21 +33,28 @@ from amo.decorators import skip_cache
 from amo.helpers import absolutify
 from amo.storage_utils import copy_stored_file
 from amo.urlresolvers import reverse
-from amo.utils import JSONEncoder, memoize, memoize_key, smart_path
+from amo.utils import JSONEncoder, memoize, memoize_key, smart_path, urlparams
 from constants.applications import DEVICE_TYPES
 from files.models import File, nfd_str, Platform
 from files.utils import parse_addon, WebAppParser
-from lib.crypto import packaged
 from market.models import AddonPremium
 from stats.models import ClientData
 from translations.fields import save_signal
 from versions.models import Version
 
+from lib.crypto import packaged
+from lib.iarc.client import get_iarc_client
+from lib.iarc.utils import (render_xml, REVERSE_DESC_MAPPING,
+                            REVERSE_INTERACTIVES_MAPPING)
+
 import mkt
 from mkt.constants import APP_FEATURES, apps
-from mkt.constants.ratingsdescriptors import RATING_DESCS
+from mkt.regions.utils import parse_region
 from mkt.search.utils import S
-from mkt.webapps.utils import get_locale_properties, get_supported_locales
+from mkt.site.models import DynamicBoolFieldsMixin
+from mkt.webapps.utils import (
+    dehydrate_content_rating, dehydrate_descriptors, dehydrate_interactives,
+    get_locale_properties, get_supported_locales)
 
 
 log = commonware.log.getLogger('z.addons')
@@ -111,6 +119,22 @@ class WebappManager(amo.models.ManagerBase):
         # ** Unreviewed -- LITE
         # ** Rejected   -- REJECTED
         return self.filter(status=amo.WEBAPPS_UNREVIEWED_STATUS)
+
+    @skip_cache
+    def pending_in_region(self, region):
+        """
+        Apps that have been approved by reviewers but unapproved by
+        reviewers in special regions (e.g., China).
+
+        """
+        region = parse_region(region)
+        column_prefix = '_geodata__region_%s' % region.slug
+        return self.filter(**{
+            'status': amo.STATUS_PUBLIC,
+            'disabled_by_user': False,
+            'escalationqueue__isnull': True,
+            '%s_status' % column_prefix: amo.STATUS_PENDING,
+        }).order_by('-%s_nominated' % column_prefix)
 
     def rated(self):
         """IARC."""
@@ -216,24 +240,26 @@ class Webapp(Addon):
 
     def get_api_url(self, action=None, api=None, resource=None, pk=False):
         """Reverse a URL for the API."""
-        kwargs = {'api_name': api or 'apps',
-                  'resource_name': resource or 'app'}
         if pk:
-            kwargs['pk'] = self.pk
+            key = self.pk
         else:
-            kwargs['app_slug'] = self.app_slug
-        return reverse('api_dispatch_%s' % (action or 'detail'), kwargs=kwargs)
+            key = self.app_slug
+        return reverse('app-detail', kwargs={'pk': key})
 
-    def get_url_path(self, more=False, add_prefix=True):
+    def get_url_path(self, more=False, add_prefix=True, src=None):
         # We won't have to do this when Marketplace absorbs all apps views,
         # but for now pretend you didn't see this.
         try:
-            return reverse('detail', args=[self.app_slug],
+            url_ = reverse('detail', args=[self.app_slug],
                            add_prefix=add_prefix)
         except NoReverseMatch:
             # Fall back to old details page until the views get ported.
             return super(Webapp, self).get_url_path(more=more,
                                                     add_prefix=add_prefix)
+        else:
+            if src is not None:
+                return urlparams(url_, src=src)
+            return url_
 
     def get_detail_url(self, action=None):
         """Reverse URLs for 'detail', 'details.record', etc."""
@@ -268,11 +294,8 @@ class Webapp(Addon):
                        args=[self.app_slug] + (args or []))
 
     def get_comm_thread_url(self):
-        threads = self.threads.order_by('-created')
-        if threads.exists():
-            return reverse('commonplace.commbadge.show_thread',
-                           args=[threads[0].id])
-        return reverse('commonplace.commbadge')
+        return reverse('commonplace.commbadge.app_dashboard',
+                       args=[self.app_slug])
 
     @staticmethod
     def domain_from_url(url, allow_none=False):
@@ -344,7 +367,7 @@ class Webapp(Addon):
             # TODO: Remove this when we're satisified the above is working.
             log.info('Falling back to loading manifest from file system. '
                      'Webapp:%s File:%s' % (self.id, file_.id))
-            if file_.status == amo.STATUS_OBSOLETE:
+            if file_.status == amo.STATUS_DISABLED:
                 file_path = file_.guarded_file_path
             else:
                 file_path = file_.file_path
@@ -389,7 +412,7 @@ class Webapp(Addon):
 
     def is_complete(self):
         """See if the app is complete. If not, return why. This function does
-        not consider or include payments-related information.
+        not consider or include payments-related or IARC information.
 
         """
         reasons = []
@@ -409,8 +432,53 @@ class Webapp(Addon):
 
         return not bool(reasons), reasons
 
+    def is_fully_complete(self):
+        """
+        Central method to determine if app is fully complete. That is,
+        like `is_complete`, but considers payments-related and IARC
+        information.
+        """
+        is_complete = True
+        reasons = {
+            'details': True,
+            'content_ratings': True,
+            'payments': True
+        }
+        if not self.is_complete()[0]:
+            is_complete = False
+            reasons['details'] = False
+        if waffle.switch_is_active('iarc') and not self.is_rated():
+            is_complete = False
+            reasons['content_ratings'] = False
+        if self.needs_payment() and not self.has_payment_account():
+            is_complete = False
+            reasons['payments'] = False
+
+        return is_complete, reasons
+
     def is_rated(self):
         return self.content_ratings.exists()
+
+    @property
+    def is_offline(self):
+        """
+        Returns a boolean of whether this is an app that degrades
+        gracefully offline (i.e., is a packaged app or has an
+        `appcache_path` defined in its manifest).
+
+        """
+        if self.is_packaged:
+            return True
+        manifest = self.get_manifest_json()
+        return bool(manifest and 'appcache_path' in manifest)
+
+    def has_payment_account(self):
+        """App doesn't have a payment account set up yet."""
+        try:
+            self.app_payment_account
+        except ObjectDoesNotExist:
+            return False
+        return True
 
     def mark_done(self):
         """When the submission process is done, update status accordingly."""
@@ -646,13 +714,13 @@ class Webapp(Addon):
             return []
 
         rb = []
-        if not region.ratingsbodies:
+        if not region.ratingsbody:
             # If a region doesn't specify a ratings body, default to GENERIC.
-            rb = [mkt.ratingsbodies.GENERIC.id]
+            rb = mkt.ratingsbodies.GENERIC.id
         else:
-            rb = [x.id for x in region.ratingsbodies]
+            rb = region.ratingsbody.id
 
-        return list(self.content_ratings.filter(ratings_body__in=rb)
+        return list(self.content_ratings.filter(ratings_body=rb)
                         .order_by('rating'))
 
     @classmethod
@@ -934,6 +1002,193 @@ class Webapp(Addon):
         except ObjectDoesNotExist:
             return 0
 
+    def iarc_token(self):
+        """
+        Simple hash to verify token in pingback API.
+        """
+        return hashlib.sha512(settings.SECRET_KEY + str(self.id)).hexdigest()
+
+    def get_content_ratings_by_region(self, es=False):
+        """
+        Gets content ratings on this app keyed by regions that specify a
+        non-generic ratings body. If a region doesn't specify a non-generic
+        body, it will use the generic ratings body.
+
+        es -- denotes whether to return ES-friendly results (just the IDs of
+              rating classes) to fetch and translate later.
+
+        """
+        content_ratings = {}
+        for cr in self.content_ratings.all():
+            body = cr.get_body()
+            rating_class = cr.get_rating()
+            for region in cr.get_region_slugs():
+                rating_serialized = {
+                    'body': body.id,
+                    'rating': rating_class.id
+                }
+                if not es:
+                    rating_serialized = dehydrate_content_rating(
+                        rating_serialized)
+
+                content_ratings[region] = rating_serialized
+        return content_ratings
+
+    def get_descriptors(self, es=False, body=''):
+        """
+        Return list of serialized content descriptors.
+        (e.g. [{'label': 'esrb-blood', 'name': u'Blood},
+               {'label': 'classind-lang', 'name': u'Language'}])
+
+        es -- denotes whether to return ES-friendly results (just the keys of
+              the descriptors) to fetch and dehydrate later.
+              (e.g. ['ESRB_BLOOD', 'CLASSIND_LANG').
+        body -- ratings body label to filter by
+                (e.g. 'pegi', 'esrb', 'generic').
+
+        """
+        try:
+            app_descriptors = self.rating_descriptors
+        except RatingDescriptors.DoesNotExist:
+            return []
+
+        descriptors = []
+        for key in mkt.ratingdescriptors.RATING_DESCS.keys():
+            field = 'has_%s' % key.lower()
+            if getattr(app_descriptors, field):
+                if key.lower().startswith(body):
+                    descriptors.append(key)
+
+        if not es and descriptors:
+            descriptors = dehydrate_descriptors(descriptors)
+        return descriptors
+
+    def get_interactives(self, es=False):
+        """
+        Return list of serialized interactive elements.
+        (e.g. [{'label': 'social-networking', 'name': u'Social Networking'},
+               {'label': 'milk', 'name': u'Milk'}])
+
+        es -- denotes whether to return ES-friendly results (just the keys of
+              the interactive elements) to fetch and dehydrate later.
+              (e.g. ['SOCIAL_NETWORKING', 'MILK'])
+
+        """
+        try:
+            app_interactives = self.rating_interactives
+        except RatingInteractives.DoesNotExist:
+            return []
+
+        interactives = []
+        for key in mkt.ratinginteractives.RATING_INTERACTIVES.keys():
+            field = 'has_%s' % key.lower()
+            if getattr(app_interactives, field):
+                interactives.append(key)
+
+        if not es and interactives:
+            interactives = dehydrate_interactives(interactives)
+        return interactives
+
+    def set_iarc_info(self, submission_id, security_code):
+        """
+        Sets the iarc_info for this app.
+        """
+        data = {'submission_id': submission_id,
+                'security_code': security_code}
+        info, created = IARCInfo.objects.safer_get_or_create(
+            addon=self, defaults=data)
+        if not created:
+            info.update(**data)
+
+    def set_content_ratings(self, data):
+        """
+        Sets content ratings on this app. Tries to set status to PENDING.
+
+        This overwrites or creates ratings, it doesn't delete and expects data
+        of the form::
+
+            {<ratingsbodies class>: <rating class>, ...}
+
+        """
+        for ratings_body, rating in data.items():
+            cr, created = self.content_ratings.safer_get_or_create(
+                ratings_body=ratings_body.id, defaults={'rating': rating.id})
+            if not created:
+                cr.update(rating=rating.id)
+
+    def set_descriptors(self, data):
+        """
+        Sets IARC rating descriptors on this app.
+
+        This overwrites or creates elements, it doesn't delete and expects data
+        of the form:
+
+            [<has_descriptor_1>, <has_descriptor_6>]
+
+        """
+        create_kwargs = {}
+        for desc in mkt.ratingdescriptors.RATING_DESCS.keys():
+            has_desc_attr = 'has_%s' % desc.lower()
+            create_kwargs[has_desc_attr] = has_desc_attr in data
+
+        rd, created = RatingDescriptors.objects.get_or_create(
+            addon=self, defaults=create_kwargs)
+        if not created:
+            rd.update(**create_kwargs)
+
+    def set_interactives(self, data):
+        """
+        Sets IARC interactive elements on this app.
+
+        This overwrites or creates elements, it doesn't delete and expects data
+        of the form:
+
+            [<has_interactive_1>, <has_interactive name 2>]
+
+        """
+        create_kwargs = {}
+        for interactive in mkt.ratinginteractives.RATING_INTERACTIVES.keys():
+            interactive = 'has_%s' % interactive.lower()
+            create_kwargs[interactive] = interactive in map(
+                lambda x: x.lower(), data)
+
+        ri, created = RatingInteractives.objects.get_or_create(
+            addon=self, defaults=create_kwargs)
+        if not created:
+            ri.update(**create_kwargs)
+
+    def set_iarc_storefront_data(self, disable=False):
+        """Send app data to IARC for them to verify."""
+        if not waffle.switch_is_active('iarc'):
+            return
+
+        try:
+            iarc_info = self.iarc_info
+        except IARCInfo.DoesNotExist:
+            # App wasn't rated by IARC, return.
+            return
+
+        with amo.utils.no_translation(self.default_locale):
+            delocalized_self = Addon.objects.get(pk=self.pk)
+
+        xmls = []
+        for cr in self.content_ratings.all():
+            xmls.append(render_xml('set_storefront_data.xml', {
+                'submission_id': iarc_info.submission_id,
+                'security_code': iarc_info.security_code,
+                'rating_system': cr.get_body().iarc_name,
+                'release_date': datetime.date.today() if not disable else '',
+                'title': unicode(delocalized_self.name),
+                'rating': cr.get_rating().iarc_name,
+                'descriptors': self.rating_descriptors.iarc_deserialize(
+                    body=cr.get_body()),
+                'interactive_elements':
+                    self.rating_interactives.iarc_deserialize(),
+            }))
+
+        for xml in xmls:
+            get_iarc_client('services').Set_Storefront_Data(XMLString=xml)
+
 
 class Trending(amo.models.ModelBase):
     addon = models.ForeignKey(Addon, related_name='trending')
@@ -1090,6 +1345,10 @@ class WebappIndexer(MappingType, Indexable):
                             'order': {'type': 'short'}
                         }
                     },
+                    'content_descriptors': {
+                        'type': 'string',
+                        'index': 'not_analyzed'
+                    },
                     'content_ratings': {
                         'type': 'object',
                         'dynamic': 'true',
@@ -1117,8 +1376,13 @@ class WebappIndexer(MappingType, Indexable):
                             'url': {'type': 'string', 'index': 'not_analyzed'},
                         }
                     },
+                    'interactive_elements': {
+                        'type': 'string',
+                        'index': 'not_analyzed'
+                    },
                     'is_disabled': {'type': 'boolean'},
                     'is_escalated': {'type': 'boolean'},
+                    'is_offline': {'type': 'boolean'},
                     'last_updated': {'format': 'dateOptionalTime',
                                      'type': 'date'},
                     'latest_version': {
@@ -1233,16 +1497,6 @@ class WebappIndexer(MappingType, Indexable):
         installed_ids = list(Installed.objects.filter(addon=obj)
                              .values_list('id', flat=True))
 
-        # IARC.
-        content_ratings = {}
-        for cr in obj.content_ratings.all():
-            for region in cr.get_region_slugs():
-                content_ratings.setdefault(region, []).append({
-                    'body': unicode(cr.get_body().name),
-                    'name': unicode(cr.get_rating().name),
-                    'description': unicode(cr.get_rating().description),
-                })
-
         attrs = ('app_slug', 'average_daily_users', 'bayesian_rating',
                  'created', 'id', 'is_disabled', 'last_updated',
                  'premium_type', 'status', 'type', 'uses_flash',
@@ -1254,7 +1508,9 @@ class WebappIndexer(MappingType, Indexable):
         d['category'] = list(obj.categories.values_list('slug', flat=True))
         d['collection'] = [{'id': cms.collection_id, 'order': cms.order}
                            for cms in obj.collectionmembership_set.all()]
-        d['content_ratings'] = content_ratings if content_ratings else None
+        d['content_ratings'] = (obj.get_content_ratings_by_region(es=True) or
+                                None)
+        d['content_descriptors'] = obj.get_descriptors(es=True)
         d['current_version'] = version.version if version else None
         d['default_locale'] = obj.default_locale
         d['description'] = list(set(s for _, s
@@ -1266,7 +1522,9 @@ class WebappIndexer(MappingType, Indexable):
         d['homepage'] = unicode(obj.homepage) if obj.homepage else ''
         d['icons'] = [{'size': icon_size, 'url': obj.get_icon_url(icon_size)}
                       for icon_size in (16, 48, 64, 128)]
+        d['interactive_elements'] = obj.get_interactives(es=True)
         d['is_escalated'] = is_escalated
+        d['is_offline'] = getattr(obj, 'is_offline', False)
         if latest_version:
             d['latest_version'] = {
                 'status': status,
@@ -1481,6 +1739,22 @@ def clean_memoized_exclusions(sender, **kw):
                                for k in mkt.regions.ALL_REGION_IDS])
 
 
+class IARCInfo(amo.models.ModelBase):
+    """
+    Stored data for IARC.
+    """
+    addon = models.OneToOneField(Addon, related_name='iarc_info')
+    submission_id = models.PositiveIntegerField(null=False)
+    security_code = models.CharField(max_length=10)
+
+    class Meta:
+        db_table = 'webapps_iarc_info'
+        unique_together = ('addon', 'submission_id')
+
+    def __unicode__(self):
+        return u'app:%s' % self.addon.app_slug
+
+
 class ContentRating(amo.models.ModelBase):
     """
     Ratings body information about an app.
@@ -1494,6 +1768,7 @@ class ContentRating(amo.models.ModelBase):
 
     class Meta:
         db_table = 'webapps_contentrating'
+        unique_together = ('addon', 'ratings_body')
 
     def __unicode__(self):
         return u'%s: %s' % (self.addon, self.get_label())
@@ -1505,7 +1780,7 @@ class ContentRating(amo.models.ModelBase):
             return mkt.regions.ALL_REGIONS_WO_CONTENT_RATINGS
 
         return [x for x in mkt.regions.ALL_REGIONS_WITH_CONTENT_RATINGS
-                if self.get_body() in x.ratingsbodies]
+                if self.get_body() == x.ratingsbody]
 
     def get_region_slugs(self):
         """Gives us the region slugs that use this rating body."""
@@ -1517,27 +1792,40 @@ class ContentRating(amo.models.ModelBase):
 
     def get_body(self):
         """Gives us something like DEJUS."""
-        return mkt.ratingsbodies.RATINGS_BODIES[self.ratings_body]
+        body = mkt.ratingsbodies.RATINGS_BODIES[self.ratings_body]
+        return mkt.ratingsbodies.dehydrate_ratings_body(body)
 
     def get_rating(self):
         """Gives us the rating class (containing the name and description)."""
-        return self.get_body().ratings[self.rating]
+        rating = self.get_body().ratings[self.rating]
+        return mkt.ratingsbodies.dehydrate_rating(rating)
 
     def get_label(self):
         """Gives us the name to be used for the form options."""
         return u'%s - %s' % (self.get_body().name, self.get_rating().name)
 
 
+def update_status_content_ratings(sender, instance, **kw):
+    # Flips the app's status from NULL if it has everything else together.
+    if (instance.addon.is_incomplete() and
+        instance.addon.is_fully_complete()[0]):
+        instance.addon.update(status=amo.STATUS_PENDING)
+
+
+models.signals.post_save.connect(update_status_content_ratings,
+                                 sender=ContentRating,
+                                 dispatch_uid='c_rating_update_app_status')
+
+
 # The RatingDescriptors table is created with dynamic fields based on
-# mkt.constants.ratingsdescriptors.
-class RatingDescriptors(amo.models.ModelBase,
-                        amo.models.DynamicFieldMixin):
+# mkt.constants.ratingdescriptors.
+class RatingDescriptors(amo.models.ModelBase, DynamicBoolFieldsMixin):
     """
     A dynamically generated model that contains a set of boolean values
-    stating if an app requires a particular descriptor.
+    stating if an app is rated with a particular descriptor.
     """
     addon = models.OneToOneField(Addon, related_name='rating_descriptors')
-    field_source = RATING_DESCS
+    field_source = mkt.ratingdescriptors.RATING_DESCS
 
     class Meta:
         db_table = 'webapps_rating_descriptors'
@@ -1545,16 +1833,50 @@ class RatingDescriptors(amo.models.ModelBase,
     def __unicode__(self):
         return u'%s: %s' % (self.id, self.addon.name)
 
+    def iarc_deserialize(self, body=None):
+        """Map our descriptor strings back to the IARC ones (comma-sep.)."""
+        keys = self.to_keys()
+        if body:
+            keys = [key for key in keys if body.iarc_name.lower() in key]
+        return ', '.join(REVERSE_DESC_MAPPING.get(desc) for desc in keys)
 
 # Add a dynamic field to `RatingDescriptors` model for each rating descriptor.
-for k, v in mkt.ratingsdescriptors.RATING_DESCS.iteritems():
+for k, v in mkt.ratingdescriptors.RATING_DESCS.iteritems():
     field = models.BooleanField(default=False, help_text=v['name'])
     field.contribute_to_class(RatingDescriptors, 'has_%s' % k.lower())
 
 
+# The RatingInteractives table is created with dynamic fields based on
+# mkt.constants.ratinginteractives.
+class RatingInteractives(amo.models.ModelBase, DynamicBoolFieldsMixin):
+    """
+    A dynamically generated model that contains a set of boolean values
+    stating if an app features a particular interactive element.
+    """
+    addon = models.OneToOneField(Addon, related_name='rating_interactives')
+    field_source = mkt.ratinginteractives.RATING_INTERACTIVES
+
+    class Meta:
+        db_table = 'webapps_rating_interactives'
+
+    def __unicode__(self):
+        return u'%s: %s' % (self.id, self.addon.name)
+
+    def iarc_deserialize(self):
+        """Map our descriptor strings back to the IARC ones (comma-sep.)."""
+        return ', '.join(REVERSE_INTERACTIVES_MAPPING.get(inter)
+                         for inter in self.to_keys())
+
+
+# Add a dynamic field to `RatingInteractives` model for each rating descriptor.
+for k, v in mkt.ratinginteractives.RATING_INTERACTIVES.iteritems():
+    field = models.BooleanField(default=False, help_text=v['name'])
+    field.contribute_to_class(RatingInteractives, 'has_%s' % k.lower())
+
+
 # The AppFeatures table is created with dynamic fields based on
 # mkt.constants.features, which requires some setup work before we call `type`.
-class AppFeatures(amo.models.ModelBase, amo.models.DynamicFieldMixin):
+class AppFeatures(amo.models.ModelBase, DynamicBoolFieldsMixin):
     """
     A dynamically generated model that contains a set of boolean values
     stating if an app requires a particular feature.
@@ -1643,3 +1965,90 @@ class Geodata(amo.models.ModelBase):
         return u'%s (%s): <Webapp %s>' % (self.id,
             'restricted' if self.restricted else 'unrestricted',
             self.addon.id)
+
+    def get_status(self, region):
+        """
+        Return the status of listing in a given region (e.g., China).
+        """
+        return getattr(self, 'region_%s_status' % parse_region(region).slug,
+                       amo.STATUS_PUBLIC)
+
+    def set_status(self, region, status, save=False):
+        """Return a tuple of `(value, changed)`."""
+
+        value, changed = None, False
+
+        attr = 'region_%s_status' % parse_region(region).slug
+        if hasattr(self, attr):
+            value = setattr(self, attr, status)
+
+            if self.get_status(region) != value:
+                changed = True
+                # Save only if the value is different.
+                if save:
+                    self.save()
+
+        return None, changed
+
+    def get_status_slug(self, region):
+        return {
+            amo.STATUS_PENDING: 'pending',
+            amo.STATUS_PUBLIC: 'public',
+            amo.STATUS_REJECTED: 'rejected',
+        }.get(self.get_status(region), 'unavailable')
+
+    @classmethod
+    def get_status_messages(cls):
+        return {
+            # L10n: An app is awaiting approval for a particular region.
+            'pending': _('awaiting approval'),
+            # L10n: An app is rejected for a particular region.
+            'rejected': _('rejected'),
+            # L10n: An app requires additional review for a particular region.
+            'unavailable': _('requires additional review')
+        }
+
+    def get_nominated_date(self, region):
+        """
+        Return the timestamp of when the app was approved in a region.
+        """
+        return getattr(self,
+                       'region_%s_nominated' % parse_region(region).slug)
+
+    def set_nominated_date(self, region, timestamp=None, save=False):
+        """Return a tuple of `(value, saved)`."""
+
+        value, changed = None, False
+
+        attr = 'region_%s_nominated' % parse_region(region).slug
+        if hasattr(self, attr):
+            if timestamp is None:
+                timestamp = datetime.datetime.now()
+            value = setattr(self, attr, timestamp)
+
+            if self.get_nominated_date(region) != value:
+                changed = True
+                # Save only if the value is different.
+                if save:
+                    self.save()
+
+        return None, changed
+
+
+# (1) Add a dynamic status field to `Geodata` model for each special region:
+# -  0: STATUS_NULL (Unavailable)
+# -  2: STATUS_PENDING (Pending)
+# -  4: STATUS_PUBLIC (Public)
+# - 12: STATUS_REJECTED (Rejected)
+#
+# (2) Add a dynamic nominated field to keep track of timestamp for when
+# the developer requested approval for each region.
+for region in mkt.regions.SPECIAL_REGIONS:
+    help_text = _('{region} approval status').format(region=region.name)
+    field = models.PositiveIntegerField(help_text=help_text,
+        choices=amo.STATUS_CHOICES.items(), db_index=True, default=0)
+    field.contribute_to_class(Geodata, 'region_%s_status' % region.slug)
+
+    help_text = _('{region} nomination date').format(region=region.name)
+    field = models.DateTimeField(help_text=help_text, null=True)
+    field.contribute_to_class(Geodata, 'region_%s_nominated' % region.slug)

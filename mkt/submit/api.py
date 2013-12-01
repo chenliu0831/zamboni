@@ -1,57 +1,61 @@
-import json
-
-from django.db import transaction
-from django.http import HttpResponse
-
 import commonware.log
+from rest_framework import mixins
+from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.status import (HTTP_201_CREATED, HTTP_202_ACCEPTED,
+                                   HTTP_400_BAD_REQUEST)
+from rest_framework.viewsets import GenericViewSet
 from tastypie import fields, http
-from tastypie.authorization import Authorization
 from tastypie.resources import ALL_WITH_RELATIONS
-from tastypie.serializers import Serializer
 
 import amo
-from amo.decorators import write
 from addons.models import Addon, Preview
 from files.models import FileUpload
 
-import mkt.constants
 from mkt.api.authentication import (OAuthAuthentication,
-                                    OptionalOAuthAuthentication)
-from mkt.api.authorization import AppOwnerAuthorization, OwnerAuthorization
-from mkt.api.base import CORSResource, http_error, MarketplaceModelResource
-from mkt.api.forms import (NewPackagedForm, PreviewArgsForm, PreviewJSONForm,
-                           StatusForm)
+                                    RestAnonymousAuthentication,
+                                    RestOAuthAuthentication,
+                                    RestSharedSecretAuthentication)
+from mkt.api.authorization import (AllowAppOwner, AppOwnerAuthorization,
+                                   OwnerAuthorization)
+from mkt.api.base import (CORSMixin, CORSResource, http_error,
+                          MarketplaceModelResource)
+from mkt.api.forms import NewPackagedForm, PreviewArgsForm, PreviewJSONForm
 from mkt.developers import tasks
 from mkt.developers.forms import NewManifestForm, PreviewForm
+from mkt.submit.serializers import AppStatusSerializer, FileUploadSerializer
+from mkt.webapps.models import Webapp
+
 
 log = commonware.log.getLogger('z.api')
 
-class HttpRequestTooBig(HttpResponse):
-    status_code = 413
 
+class ValidationViewSet(CORSMixin, mixins.CreateModelMixin,
+                        mixins.RetrieveModelMixin, GenericViewSet):
+    cors_allowed_methods = ['get', 'post']
+    authentication_classes = [RestOAuthAuthentication,
+                              RestSharedSecretAuthentication,
+                              RestAnonymousAuthentication]
+    permission_classes = [AllowAny]
+    model = FileUpload
+    serializer_class = FileUploadSerializer
 
-class ValidationResource(CORSResource, MarketplaceModelResource):
+    def create(self, request, *args, **kwargs):
+        """
+        Custom create method allowing us to re-use form logic and distinguish
+        packaged app from hosted apps, applying delays to the validation task
+        if necessary.
 
-    class Meta(MarketplaceModelResource.Meta):
-        queryset = FileUpload.objects.all()
-        fields = ['valid', 'validation']
-        list_allowed_methods = ['post']
-        detail_allowed_methods = ['get']
-        always_return_data = True
-        authentication = OptionalOAuthAuthentication()
-        authorization = Authorization()
-        resource_name = 'validation'
-        serializer = Serializer(formats=['json'])
-
-    @write
-    @transaction.commit_on_success
-    def obj_create(self, bundle, request=None, **kwargs):
-        packaged = 'upload' in bundle.data
-        form = (NewPackagedForm(bundle.data) if packaged
-                else NewManifestForm(bundle.data))
+        Doesn't rely on any serializer, just forms.
+        """
+        data = self.request.DATA
+        packaged = 'upload' in data
+        form = (NewPackagedForm(data) if packaged
+                else NewManifestForm(data))
 
         if not form.is_valid():
-            raise self.form_errors(form)
+            return Response(form.errors, status=HTTP_400_BAD_REQUEST)
 
         if not packaged:
             upload = FileUpload.objects.create(
@@ -63,85 +67,28 @@ class ValidationResource(CORSResource, MarketplaceModelResource):
             # The packaged app validator is much heavier.
             tasks.validator.delay(upload.pk)
 
-        # This is a reget of the object, we do this to get the refreshed
-        # results if not celery delayed.
-        bundle.obj = FileUpload.objects.get(pk=upload.pk)
-        log.info('Validation created: %s' % bundle.obj.pk)
-        return bundle
-
-    @write
-    def obj_get(self, request=None, **kwargs):
-        # Until the perms branch lands, this is the only way to lock
-        # permissions down on gets, since the object doesn't actually
-        # get passed through to OwnerAuthorization.
-        try:
-            obj = FileUpload.objects.get(pk=kwargs['pk'])
-        except FileUpload.DoesNotExist:
-            raise http_error(http.HttpNotFound, 'No upload with that ID.')
-
-        log.info('Validation retreived: %s' % obj.pk)
-        return obj
-
-    def dehydrate_validation(self, bundle):
-        validation = bundle.data['validation']
-        return json.loads(validation) if validation else validation
-
-    def dehydrate(self, bundle):
-        bundle.data['id'] = bundle.obj.pk
-        bundle.data['processed'] = (bool(bundle.obj.valid or
-                                         bundle.obj.validation))
-        return bundle
+        log.info('Validation created: %s' % upload.pk)
+        self.kwargs = {'pk': upload.pk}
+        # Re-fetch the object, fetch_manifest() might have altered it.
+        upload = self.get_object()
+        serializer = self.get_serializer(upload)
+        status = HTTP_201_CREATED if upload.processed else HTTP_202_ACCEPTED
+        return Response(serializer.data, status=status)
 
 
-class StatusResource(MarketplaceModelResource):
+class StatusViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin,
+                    GenericViewSet):
+    queryset = Webapp.objects.all()
+    authentication_classes = [RestOAuthAuthentication,
+                              RestSharedSecretAuthentication]
+    permission_classes = [AllowAppOwner]
+    serializer_class = AppStatusSerializer
 
-    class Meta(MarketplaceModelResource.Meta):
-        queryset = Addon.objects.filter(type=amo.ADDON_WEBAPP)
-        fields = ['status', 'disabled_by_user']
-        list_allowed_methods = []
-        allowed_methods = ['patch', 'get']
-        always_return_data = True
-        authentication = OAuthAuthentication()
-        authorization = AppOwnerAuthorization()
-        resource_name = 'status'
-        serializer = Serializer(formats=['json'])
-
-    @write
-    @transaction.commit_on_success
-    def obj_update(self, bundle, request, **kwargs):
-        try:
-            obj = self.get_object_list(bundle.request).get(**kwargs)
-        except Addon.DoesNotExist:
-            raise http_error(http.HttpNotFound, 'No such addon.')
-
-        if not AppOwnerAuthorization().is_authorized(request, object=obj):
-            raise http_error(http.HttpForbidden,
-                             'You are not an author of that app.')
-
-        form = StatusForm(bundle.data, instance=obj)
-        if not form.is_valid():
-            raise self.form_errors(form)
-
-        form.save()
-        log.info('App status updated: %s' % obj.pk)
-        bundle.obj = obj
-        return bundle
-
-    @write
-    def obj_get(self, request=None, **kwargs):
-        obj = super(StatusResource, self).obj_get(request=request, **kwargs)
-        if not AppOwnerAuthorization().is_authorized(request, object=obj):
-            raise http_error(http.HttpForbidden,
-                             'You are not an author of that app.')
-
-        log.info('App status retreived: %s' % obj.pk)
-        return obj
-
-    def dehydrate_status(self, bundle):
-        return amo.STATUS_CHOICES_API[int(bundle.data['status'])]
-
-    def hydrate_status(self, bundle):
-        return amo.STATUS_CHOICES_API_LOOKUP[int(bundle.data['status'])]
+    def update(self, request, *args, **kwargs):
+        # PUT is disallowed, only PATCH is accepted for this endpoint.
+        if request.method == 'PUT':
+            raise MethodNotAllowed('PUT')
+        return super(StatusViewSet, self).update(request, *args, **kwargs)
 
 
 class PreviewResource(CORSResource, MarketplaceModelResource):

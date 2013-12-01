@@ -6,10 +6,8 @@ HOME=/tmp
 
 # Every minute!
 * * * * * %(z_cron)s fast_current_version
-* * * * * %(z_cron)s migrate_collection_users
 
 # Every 30 minutes.
-*/30 * * * * %(z_cron)s tag_jetpacks
 */30 * * * * %(z_cron)s update_addons_current_version
 
 #once per hour
@@ -40,6 +38,8 @@ HOME=/tmp
 
 #once per day
 05 8 * * * %(z_cron)s email_daily_ratings --settings=settings_local_mkt
+15 8 * * * %(z_cron)s process_iarc_changes --settings=settings_local_mkt
+30 8 * * * %(z_cron)s dump_user_installs_cron --settings=settings_local_mkt
 30 9 * * * %(z_cron)s update_user_ratings
 40 9 * * * %(z_cron)s update_weekly_downloads
 50 9 * * * %(z_cron)s gc
@@ -55,7 +55,6 @@ HOME=/tmp
 30 17 * * * %(z_cron)s share_count_totals
 30 18 * * * %(z_cron)s recs
 30 6 * * * %(z_cron)s deliver_hotness
-40 7 * * * %(z_cron)s update_compat_info_for_fx4
 45 7 * * * %(django)s dump_apps
 
 # Collect visitor stats from Google Analytics once per day.

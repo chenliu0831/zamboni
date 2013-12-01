@@ -1,3 +1,4 @@
+import functools
 import json
 import logging
 import sys
@@ -12,10 +13,12 @@ from django.db.models.sql import EmptyResultSet
 from django.http import HttpResponseNotFound
 
 import commonware.log
+from rest_framework.decorators import api_view
 from rest_framework.mixins import ListModelMixin
 from rest_framework.routers import Route, SimpleRouter
 from rest_framework.relations import HyperlinkedRelatedField
 from rest_framework.response import Response
+from rest_framework.serializers import ValidationError
 from rest_framework.viewsets import GenericViewSet
 from tastypie import fields, http
 from tastypie.bundle import Bundle
@@ -205,6 +208,9 @@ class Marketplace(object):
 
         raise http_error(http.HttpUnauthorized, 'Authentication required.')
 
+    def get_throttle_identifiers(self, request):
+        return set(a.get_identifier(request) for a in self._auths())
+
     def throttle_check(self, request):
         """
         Handles checking if the user should be throttled.
@@ -212,17 +218,20 @@ class Marketplace(object):
         Mostly a hook, this uses class assigned to ``throttle`` from
         ``Resource._meta``.
         """
-        # Never throttle users with Apps:APIUnthrottled.
-        if (settings.API_THROTTLE and
-            not acl.action_allowed(request, 'Apps', 'APIUnthrottled')):
-            identifiers = [a.get_identifier(request) for a in self._auths()]
+        # Never throttle users with Apps:APIUnthrottled or "safe" requests.
+        if (not settings.API_THROTTLE or
+            request.method in ('GET', 'HEAD', 'OPTIONS') or
+            acl.action_allowed(request, 'Apps', 'APIUnthrottled')):
+            return
 
-            # Check to see if they should be throttled.
-            if any(self._meta.throttle.should_be_throttled(identifier)
-                   for identifier in identifiers):
-                # Throttle limit exceeded.
-                raise http_error(HttpTooManyRequests,
-                                 'Throttle limit exceeded.')
+        identifiers = self.get_throttle_identifiers(request)
+
+        # Check to see if they should be throttled.
+        if any(self._meta.throttle.should_be_throttled(identifier)
+               for identifier in identifiers):
+            # Throttle limit exceeded.
+            raise http_error(HttpTooManyRequests,
+                             'Throttle limit exceeded.')
 
     def log_throttled_access(self, request):
         """
@@ -232,7 +241,7 @@ class Marketplace(object):
         ``Resource._meta``.
         """
         request_method = request.method.lower()
-        identifiers = [a.get_identifier(request) for a in self._auths()]
+        identifiers = self.get_throttle_identifiers(request)
         for identifier in identifiers:
             self._meta.throttle.accessed(identifier,
                                          url=request.get_full_path(),
@@ -412,38 +421,17 @@ def check_potatocaptcha(data):
             return Response(json.dumps({'sprout': 'Invalid value'}), 400)
 
 
-class CompatRelatedField(HyperlinkedRelatedField):
-    """
-    Upsell field for connecting Tastypie resources to
-    django-rest-framework instances, this got complicated.
-    """
-
-    def __init__(self, *args, **kwargs):
-        self.tastypie = kwargs.pop('tastypie')
-        return super(CompatRelatedField, self).__init__(*args, **kwargs)
-
-    def to_native(self, obj):
-        if getattr(obj, 'pk', None) is None:
-            return
-
-        self.tastypie['pk'] = obj.pk
-        return reverse('api_dispatch_detail', kwargs=self.tastypie)
-
-    def get_object(self, queryset, view_name, view_args, view_kwargs):
-        return queryset.get(pk=view_kwargs['pk'])
-
-
 class CompatToOneField(ToOneField):
     """
     Tastypie field to relate a resource to a django-rest-framework view.
     """
     def __init__(self, *args, **kwargs):
-        self.rest = kwargs.pop('rest', None)
+        self.url_name = kwargs.pop('url_name', None)
         self.extra_fields = kwargs.pop('extra_fields', None)
         return super(CompatToOneField, self).__init__(*args, **kwargs)
 
     def dehydrate_related(self, bundle, related_resource):
-        uri = reverse(self.rest + '-detail', kwargs={'pk': bundle.obj.pk})
+        uri = reverse(self.url_name, kwargs={'pk': bundle.obj.pk})
         if self.full:
             raise NotImplementedError
         elif self.extra_fields:
@@ -531,14 +519,42 @@ class SlugRouter(SimpleRouter):
         return url(regex, view, name=name)
 
 
+class MarketplaceView(object):
+    """
+    Base view for DRF views.
+
+    It includes:
+    - An implement of handle_exception() that goes with our custom exception
+      handler. It stores the request and originating class in the exception
+      before it's handed over the the handler, so that the handler can in turn
+      properly propagate the got_request_exception signal if necessary.
+    """
+    def handle_exception(self, exc):
+        exc._request = self.request._request
+        exc._klass = self.__class__
+        return super(MarketplaceView, self).handle_exception(exc)
+
+
 class CORSMixin(object):
     """
     Mixin to enable CORS for DRF API.
     """
     def finalize_response(self, request, response, *args, **kwargs):
-        request._request.CORS = self.cors_allowed_methods
+        if not hasattr(request._request, 'CORS'):
+            request._request.CORS = self.cors_allowed_methods
         return super(CORSMixin, self).finalize_response(
             request, response, *args, **kwargs)
+
+
+def cors_api_view(methods):
+    def decorator(f):
+        @api_view(methods)
+        @functools.wraps(f)
+        def wrapped(request):
+            request._request.CORS = methods
+            return f(request)
+        return wrapped
+    return decorator
 
 
 class SlugOrIdMixin(object):
@@ -548,7 +564,8 @@ class SlugOrIdMixin(object):
     """
 
     def get_object(self, queryset=None):
-        if 'pk' in self.kwargs and not self.kwargs['pk'].isdigit():
+        pk = self.kwargs.get('pk')
+        if pk and not pk.isdigit():
             # If the `pk` contains anything other than a digit, it's a `slug`.
             self.kwargs.update(pk=None, slug=self.kwargs['pk'])
         return super(SlugOrIdMixin, self).get_object(queryset=queryset)

@@ -5,7 +5,6 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 
-from mock import patch
 from nose.tools import eq_
 from test_utils import RequestFactory
 
@@ -14,24 +13,25 @@ import mkt.regions
 from access.models import GroupUser
 from addons.models import Category
 from amo.tests import ESTestCase
+from amo.urlresolvers import reverse
+from users.models import UserProfile
 
-from mkt.api.tests.test_oauth import BaseOAuth, get_absolute_url, OAuthClient
-from mkt.api.base import get_url, list_url
+from mkt.api.base import list_url
 from mkt.api.models import Access, generate
+from mkt.api.tests.test_oauth import BaseOAuth, OAuthClient, RestOAuth
 from mkt.constants.features import FeatureProfile
 from mkt.reviewers.api import ReviewersSearchResource
 from mkt.reviewers.utils import AppsReviewing
 from mkt.site.fixtures import fixture
 from mkt.webapps.models import Webapp
-from users.models import UserProfile
 
 
-class TestReviewing(BaseOAuth):
+class TestReviewing(RestOAuth):
     fixtures = fixture('user_2519', 'webapp_337141')
 
     def setUp(self):
-        super(TestReviewing, self).setUp(api_name='reviewers')
-        self.list_url = list_url('reviewing')
+        super(TestReviewing, self).setUp()
+        self.list_url = reverse('reviewing-list')
         self.user = UserProfile.objects.get(pk=2519)
         self.req = RequestFactory().get('/')
         self.req.amo_user = self.user
@@ -40,10 +40,10 @@ class TestReviewing(BaseOAuth):
         self._allowed_verbs(self.list_url, ('get'))
 
     def test_not_allowed(self):
-        eq_(self.anon.get(self.list_url).status_code, 401)
+        eq_(self.anon.get(self.list_url).status_code, 403)
 
     def test_still_not_allowed(self):
-        eq_(self.client.get(self.list_url).status_code, 401)
+        eq_(self.client.get(self.list_url).status_code, 403)
 
     def add_perms(self):
         self.grant_permission(self.user, 'Apps:Review')
@@ -66,7 +66,7 @@ class TestReviewing(BaseOAuth):
         res = self.client.get(self.list_url)
         data = json.loads(res.content)
         eq_(data['objects'][0]['resource_uri'],
-            get_absolute_url(get_url('app', '337141'), absolute=False))
+            reverse('app-detail', kwargs={'pk': 337141}))
 
 
 class TestApiReviewer(BaseOAuth, ESTestCase):
@@ -232,7 +232,6 @@ class TestApiReviewer(BaseOAuth, ESTestCase):
         eq_(obj['slug'], self.webapp.app_slug)
 
     def test_no_feature_profile_filtering(self):
-        self.create_switch('buchets')
         feature_profile = FeatureProfile().to_signature()
         qs = {'q': 'something', 'pro': feature_profile, 'dev': 'firefoxos'}
 
@@ -263,3 +262,76 @@ class TestApiReviewer(BaseOAuth, ESTestCase):
         res = self.client.get(self.url + ({'dev': 'android'},))
         eq_(res.status_code, 200)
         eq_(len(res.json['objects']), 1)
+
+
+class TestApproveRegion(RestOAuth):
+    fixtures = fixture('user_2519', 'webapp_337141')
+
+    def url(self, **kwargs):
+        kw = {'pk': '337141', 'region': 'cn'}
+        kw.update(kwargs)
+        return reverse('approve-region', kwargs=kw)
+
+    def test_verbs(self):
+        self.grant_permission(self.profile, 'Apps:ReviewRegionCN')
+        self._allowed_verbs(self.url(), ['post'])
+
+    def test_anon(self):
+        res = self.anon.post(self.url())
+        eq_(res.status_code, 403)
+
+    def test_bad_webapp(self):
+        self.grant_permission(self.profile, 'Apps:ReviewRegionCN')
+        res = self.client.post(self.url(pk='999'))
+        eq_(res.status_code, 404)
+
+    def test_webapp_not_pending_in_region(self):
+        self.grant_permission(self.profile, 'Apps:ReviewRegionCN')
+        res = self.client.post(self.url())
+        eq_(res.status_code, 404)
+
+    def test_good_but_no_permission(self):
+        res = self.client.post(self.url())
+        eq_(res.status_code, 403)
+
+    def test_good_webapp_but_wrong_region_permission(self):
+        self.grant_permission(self.profile, 'Apps:ReviewRegionBR')
+
+        app = Webapp.objects.get(id=337141)
+        app.geodata.set_status('cn', amo.STATUS_PENDING, save=True)
+
+        res = self.client.post(self.url())
+        eq_(res.status_code, 403)
+
+    def test_good_webapp_but_wrong_region_queue(self):
+        self.grant_permission(self.profile, 'Apps:ReviewRegionCN')
+
+        app = Webapp.objects.get(id=337141)
+        app.geodata.set_status('cn', amo.STATUS_PENDING, save=True)
+
+        res = self.client.post(self.url(region='br'))
+        eq_(res.status_code, 403)
+
+    def test_good_rejected(self):
+        self.grant_permission(self.profile, 'Apps:ReviewRegionCN')
+
+        app = Webapp.objects.get(id=337141)
+        app.geodata.set_status('cn', amo.STATUS_PENDING, save=True)
+
+        res = self.client.post(self.url())
+        eq_(res.status_code, 200)
+        obj = json.loads(res.content)
+        eq_(obj['approved'], False)
+        eq_(app.geodata.reload().get_status('cn'), amo.STATUS_REJECTED)
+
+    def test_good_approved(self):
+        self.grant_permission(self.profile, 'Apps:ReviewRegionCN')
+
+        app = Webapp.objects.get(id=337141)
+        app.geodata.set_status('cn', amo.STATUS_PENDING, save=True)
+
+        res = self.client.post(self.url(), data=json.dumps({'approve': '1'}))
+        eq_(res.status_code, 200)
+        obj = json.loads(res.content)
+        eq_(obj['approved'], True)
+        eq_(app.geodata.reload().get_status('cn'), amo.STATUS_PUBLIC)

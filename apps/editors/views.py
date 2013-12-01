@@ -51,7 +51,7 @@ def _view_on_get(request):
             acl.action_allowed(request, 'ReviewerTools', 'View'))
 
 
-def reviewer_required(only=None):
+def reviewer_required(only=None, region=None):
     """Requires the user to be logged in as a reviewer or admin, or allows
     someone with rule 'ReviewerTools:View' for GET requests.
 
@@ -70,7 +70,8 @@ def reviewer_required(only=None):
         @login_required
         @functools.wraps(f)
         def wrapper(request, *args, **kw):
-            if acl.check_reviewer(request, only) or _view_on_get(request):
+            if (acl.check_reviewer(request, only, region=kw.get('region')) or
+                _view_on_get(request)):
                 return f(request, *args, **kw)
             else:
                 raise PermissionDenied
@@ -122,13 +123,36 @@ def home(request):
                  ('old', _('Overdue (Over 10 days)')))
 
     progress, percentage = _editor_progress()
+    reviews_max_display = getattr(settings, 'EDITOR_REVIEWS_MAX_DISPLAY', 5)
+    reviews_total = ActivityLog.objects.total_reviews()[:reviews_max_display]
+    reviews_monthly = (
+        ActivityLog.objects.monthly_reviews()[:reviews_max_display])
+    reviews_total_count = ActivityLog.objects.total_reviews().count()
+    reviews_monthly_count = ActivityLog.objects.total_reviews().count()
 
-    data = context(reviews_total=ActivityLog.objects.total_reviews()[:5],
-                   reviews_monthly=ActivityLog.objects.monthly_reviews()[:5],
-                   new_editors=EventLog.new_editors(),
-                   eventlog=ActivityLog.objects.editor_events()[:6],
-                   progress=progress, percentage=percentage,
-                   durations=durations)
+    # Try to read user position from retrieved reviews.
+    # If not available, query for it.
+    reviews_total_position = (
+        ActivityLog.objects.user_position(reviews_total, request.user)
+        or ActivityLog.objects.total_reviews_user_position(request.user))
+
+    reviews_monthly_position = (
+        ActivityLog.objects.user_position(reviews_monthly, request.user)
+        or ActivityLog.objects.monthly_reviews_user_position(request.user))
+
+    data = context(
+        reviews_total=reviews_total,
+        reviews_monthly=reviews_monthly,
+        reviews_total_count=reviews_total_count,
+        reviews_monthly_count=reviews_monthly_count,
+        reviews_total_position=reviews_total_position,
+        reviews_monthly_position=reviews_monthly_position,
+        new_editors=EventLog.new_editors(),
+        eventlog=ActivityLog.objects.editor_events()[:6],
+        progress=progress,
+        percentage=percentage,
+        durations=durations,
+        reviews_max_display=reviews_max_display)
 
     return jingo.render(request, 'editors/home.html', data)
 

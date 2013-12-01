@@ -2,9 +2,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2013-10-25 13:55-0700\n"
-"PO-Revision-Date: 2013-10-31 13:37+0000\n"
-"Last-Translator: Michael <michael.koehler1@gmx.de>\n"
+"POT-Creation-Date: 2013-11-27 07:58-0700\n"
+"PO-Revision-Date: 2013-11-27 19:28+0100\n"
+"Last-Translator: Michael Köhler <michael.koehler1@gmx.de>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
@@ -12,7 +12,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "X-Generator: Pootle 2.5.0\n"
-"X-POOTLE-MTIME: 1383226624.0\n"
+"X-POOTLE-MTIME: 1384329329.0\n"
 
 #: media/js/common/ratingwidget.js:31
 msgid "{0} star"
@@ -106,12 +106,10 @@ msgid "Finished validating {0}"
 msgstr "Überprüfung abgeschlossen {0}"
 
 #: media/js/common/upload-addon.js:307
-msgid "Your add-on passed validation with no errors and {0} warning."
-msgid_plural "Your add-on passed validation with no errors and {0} warnings."
-msgstr[0] ""
-"Ihr Add-on hat die Überprüfung mit null Fehlern und {0} Warnung bestanden."
-msgstr[1] ""
-"Ihr Add-on hat die Überprüfung mit null Fehlern und {0} Warnungen bestanden."
+msgid "Your add-on passed validation with no errors and {0} message."
+msgid_plural "Your add-on passed validation with no errors and {0} messages."
+msgstr[0] "Ihr Add-on hat die Überprüfung mit null Fehlern und {0} Nachricht bestanden."
+msgstr[1] "Ihr Add-on hat die Überprüfung mit null Fehlern und {0} Nachrichten bestanden."
 
 #: media/js/common/upload-addon.js:312
 msgid "Your add-on passed validation with no errors or warnings."
@@ -154,8 +152,7 @@ msgstr[1] "Ihre App ist bei der Überprüfung mit {0} Fehlern durchgefallen."
 msgid "Your app passed validation with no errors and {0} warning."
 msgid_plural "Your app passed validation with no errors and {0} warnings."
 msgstr[0] "Ihre App hat die Überprüfung ohne Fehler und mit {0} Warnung bestanden."
-msgstr[1] ""
-"Ihre App hat die Überprüfung ohne Fehler und mit {0} Warnungen bestanden."
+msgstr[1] "Ihre App hat die Überprüfung ohne Fehler und mit {0} Warnungen bestanden."
 
 #: media/js/common/upload-packaged-app.js:303
 msgid "Your app passed validation with no errors or warnings."
@@ -164,20 +161,15 @@ msgstr "Ihre App hat die Überprüfung mit null Fehlern und Warnungen bestanden.
 #: media/js/devreg/devhub.js:186
 msgid "Your app failed validation with {0} error and {1} message(s)."
 msgid_plural "Your app failed validation with {0} errors and {1} message(s)."
-msgstr[0] ""
-"Ihre App ist mit {0} Fehler und {1} Nachricht(en) durch die Überprüfung "
-"gefallen."
-msgstr[1] ""
-"Ihre App ist mit {0} Fehlern und {1} Nachricht(en) durch die Überprüfung "
-"gefallen."
+msgstr[0] "Ihre App ist mit {0} Fehler und {1} Nachricht(en) durch die Überprüfung gefallen."
+msgstr[1] "Ihre App ist mit {0} Fehlern und {1} Nachricht(en) durch die Überprüfung gefallen."
 
 #: media/js/devreg/devhub.js:200
 #: media/js/zamboni/devhub.js:183
 msgid "Your app passed validation with no errors and {0} message."
 msgid_plural "Your app passed validation with no errors and {0} messages."
 msgstr[0] "Ihre App hat die Überprüfung ohne Fehler und mit {0} Hinweis bestanden."
-msgstr[1] ""
-"Ihre App hat die Überprüfung ohne Fehler und mit {0} Hinweisen bestanden."
+msgstr[1] "Ihre App hat die Überprüfung ohne Fehler und mit {0} Hinweisen bestanden."
 
 #: media/js/devreg/devhub.js:205
 #: media/js/zamboni/devhub.js:188
@@ -228,12 +220,8 @@ msgstr "Weniger…"
 #: media/js/devreg/init.js:35
 #: media/js/mkt/init.js:47
 #: media/js/zamboni/init.js:32
-msgid ""
-"This feature is temporarily disabled while we perform website maintenance. "
-"Please check back a little later."
-msgstr ""
-"Diese Funktion wurde zeitweilig deaktiviert, während wir Wartungsarbeiten an "
-"der Website durchführen. Bitte versuchen Sie es später erneut."
+msgid "This feature is temporarily disabled while we perform website maintenance. Please check back a little later."
+msgstr "Diese Funktion wurde zeitweilig deaktiviert, während wir Wartungsarbeiten an der Website durchführen. Bitte versuchen Sie es später erneut."
 
 #: media/js/devreg/l10n.js:45
 #: media/js/zamboni/l10n.js:45
@@ -305,50 +293,40 @@ msgid "Iraqi Bank Code"
 msgstr "Irakische Bankleitzahl"
 
 #. L10n: {0} is the name of a bank detected from the bank account code.
-#: media/js/devreg/payments-enroll.js:135
+#: media/js/devreg/payments-enroll.js:136
 msgid "Detected: {0}"
 msgstr "Erkannt: {0}"
 
 #. L10n: This sentence introduces a list of applications.
 #: media/js/devreg/payments-manage.js:24
-msgid ""
-"Warning: deleting payment account \"{0}\" will move that associated app to an "
-"incomplete status and it will no longer be available for sale:"
-msgid_plural ""
-"Warning: deleting payment account \"{0}\" will move those associated apps to "
-"an incomplete status and they will no longer be available for sale:"
-msgstr[0] ""
-"Warnung: Löschung des Zahlungskontos „{0}“ ändert den Status dieser "
-"verknüpften App auf „unvollständig“. Sie steht dann nicht mehr zum Verkauf "
-"zur Verfügung:"
-msgstr[1] ""
-"Warnung: Löschung des Zahlungskontos „{0}“ ändert den Status dieser "
-"verknüpften Apps auf „unvollständig“. Sie stehen dann nicht mehr zum Verkauf "
-"zur Verfügung:"
+msgid "Warning: deleting payment account \"{0}\" will move that associated app to an incomplete status and it will no longer be available for sale:"
+msgid_plural "Warning: deleting payment account \"{0}\" will move those associated apps to an incomplete status and they will no longer be available for sale:"
+msgstr[0] "Warnung: Löschung des Zahlungskontos „{0}“ ändert den Status dieser verknüpften App auf „unvollständig“. Sie steht dann nicht mehr zum Verkauf zur Verfügung:"
+msgstr[1] "Warnung: Löschung des Zahlungskontos „{0}“ ändert den Status dieser verknüpften Apps auf „unvollständig“. Sie stehen dann nicht mehr zum Verkauf zur Verfügung:"
 
-#: media/js/devreg/payments-manage.js:56
-#: media/js/devreg/payments-manage.js:101
+#: media/js/devreg/payments-manage.js:58
+#: media/js/devreg/payments-manage.js:107
 #: media/js/devreg/validator.js:193
 #: media/js/devreg/validator.js:438
 #: media/js/devreg/validator.js:457
 #: media/js/mkt/buttons.js:85
 #: media/js/mkt/buttons.js:94
-#: media/js/zamboni/validator.js:193
-#: media/js/zamboni/validator.js:446
-#: media/js/zamboni/validator.js:465
+#: media/js/zamboni/validator.js:194
+#: media/js/zamboni/validator.js:449
+#: media/js/zamboni/validator.js:468
 msgid "Error"
 msgstr "Fehler"
 
-#: media/js/devreg/payments-manage.js:57
-#: media/js/devreg/payments-manage.js:102
+#: media/js/devreg/payments-manage.js:59
+#: media/js/devreg/payments-manage.js:108
 msgid "There was a problem contacting the payment server."
 msgstr "Beim Kontaktieren des Zahlungs-Servers ist ein Fehler aufgetreten."
 
-#: media/js/devreg/payments-manage.js:80
+#: media/js/devreg/payments-manage.js:85
 msgid "Authentication error"
 msgstr "Fehler bei der Authentifizierung"
 
-#: media/js/devreg/payments-manage.js:122
+#: media/js/devreg/payments-manage.js:131
 msgid "You do not currently have any payment accounts."
 msgstr "Sie haben derzeit keine Zahlungskonten."
 
@@ -360,60 +338,58 @@ msgstr "Alle Tests wurden erfolgreich durchgeführt."
 #: media/js/devreg/validator.js:74
 #: media/js/devreg/validator.js:358
 #: media/js/zamboni/validator.js:74
-#: media/js/zamboni/validator.js:366
+#: media/js/zamboni/validator.js:367
 msgid "These tests were not run."
 msgstr "Diese Tests wurden nicht durchgeführt."
 
 #: media/js/devreg/validator.js:119
 #: media/js/devreg/validator.js:132
-#: media/js/zamboni/validator.js:119
-#: media/js/zamboni/validator.js:132
+#: media/js/zamboni/validator.js:120
+#: media/js/zamboni/validator.js:133
 msgid "Tests"
 msgstr "Tests"
 
 #: media/js/devreg/validator.js:194
-#: media/js/zamboni/validator.js:194
+#: media/js/zamboni/validator.js:195
 msgid "Warning"
 msgstr "Warnung"
 
 #: media/js/devreg/validator.js:281
-#: media/js/zamboni/validator.js:281
+#: media/js/zamboni/validator.js:282
 msgid "Compatibility Tests"
 msgstr "Kompatibilitätstests"
 
 #: media/js/devreg/validator.js:329
-#: media/js/zamboni/validator.js:330
+#: media/js/zamboni/validator.js:331
 msgid "App failed validation."
 msgstr "App ist bei Überprüfung durchgefallen."
 
 #: media/js/devreg/validator.js:331
-#: media/js/zamboni/validator.js:332
+#: media/js/zamboni/validator.js:333
 msgid "App passed validation."
 msgstr "App hat Überprüfung bestanden."
 
 #: media/js/devreg/validator.js:361
-#: media/js/zamboni/validator.js:369
+#: media/js/zamboni/validator.js:370
 msgid "{0} error"
 msgid_plural "{0} errors"
 msgstr[0] "{0} Fehler"
 msgstr[1] "{0} Fehler"
 
 #: media/js/devreg/validator.js:363
-#: media/js/zamboni/validator.js:371
+#: media/js/zamboni/validator.js:372
 msgid "{0} warning"
 msgid_plural "{0} warnings"
 msgstr[0] "{0} Warnung"
 msgstr[1] "{0} Warnungen"
 
 #: media/js/devreg/validator.js:440
-#: media/js/zamboni/validator.js:448
+#: media/js/zamboni/validator.js:451
 msgid "Validation task could not complete or completed with errors"
-msgstr ""
-"Überprüfung konnte nicht abgeschlossen werden oder wurde mit Fehlern "
-"abgeschlossen"
+msgstr "Überprüfung konnte nicht abgeschlossen werden oder wurde mit Fehlern abgeschlossen"
 
 #: media/js/devreg/validator.js:458
-#: media/js/zamboni/validator.js:466
+#: media/js/zamboni/validator.js:469
 msgid "Internal server error"
 msgstr "Interner Serverfehler"
 
@@ -1214,12 +1190,8 @@ msgid "Message must not be empty."
 msgstr "Die Nachricht darf nicht leer sein."
 
 #: media/js/mkt/login.js:73
-msgid ""
-"Persona login failed. Maybe you don't have an account under that email "
-"address?"
-msgstr ""
-"Persona-Anmeldung fehlgeschlagen. Vielleicht haben Sie kein Benutzerkonto "
-"unter dieser E-Mail-Adresse?"
+msgid "Persona login failed. Maybe you don't have an account under that email address?"
+msgstr "Persona-Anmeldung fehlgeschlagen. Vielleicht haben Sie kein Benutzerkonto unter dieser E-Mail-Adresse?"
 
 #: media/js/mkt/login.js:78
 msgid "Persona login failed. A server error was encountered."
@@ -1261,37 +1233,53 @@ msgstr "OK."
 msgid "Payment failed. Try again later."
 msgstr "Zahlung fehlgeschlagen. Versuchen Sie es später erneut."
 
-#: media/js/mkt/reviewers.js:98
+#: media/js/mkt/reviewers.js:100
 msgid "Packaged App"
 msgstr "Gepackte App"
 
-#: media/js/mkt/reviewers.js:102
+#: media/js/mkt/reviewers.js:104
 msgid "Privileged App"
 msgstr "Privilegierte App"
 
-#: media/js/mkt/reviewers.js:105
+#: media/js/mkt/reviewers.js:107
 msgid "More Information Requested"
 msgstr "Weitere Informationen angefordert"
 
-#: media/js/mkt/reviewers.js:108
+#: media/js/mkt/reviewers.js:110
 msgid "Contains Editor Comment"
 msgstr "Enthält Kommentar des Redakteurs"
 
-#: media/js/mkt/reviewers.js:112
+#: media/js/mkt/reviewers.js:114
 msgid "Premium App"
 msgstr "Premium-App"
 
-#: media/js/mkt/reviewers.js:115
+#: media/js/mkt/reviewers.js:117
 msgid "Escalated"
 msgstr "An nächsthöhere Stelle weitergegeben"
 
-#: media/js/mkt/reviewers.js:120
+#: media/js/mkt/reviewers.js:122
 msgid "Free"
 msgstr "Kostenlos"
 
-#: media/js/mkt/reviewers.js:228
+#: media/js/mkt/reviewers.js:230
 msgid "Any"
 msgstr "Egal"
+
+#: media/js/mkt/reviewers.js:257
+msgid "Approved app: {app}"
+msgstr "App freigeschaltet: {app}"
+
+#: media/js/mkt/reviewers.js:260
+msgid "Rejected app: {app}"
+msgstr "App abgelehnt: {app}"
+
+#: media/js/mkt/reviewers.js:266
+msgid "Error approving app: {app}"
+msgstr "Fehler beim Freischalten der App: {app}"
+
+#: media/js/mkt/reviewers.js:267
+msgid "Error rejecting app: {app}"
+msgstr "Fehler beim Ablehnen der App: {app}"
 
 #: media/js/mkt/themes_review.js:174
 msgid "Requested Info"
@@ -1529,19 +1517,15 @@ msgstr "Installationen insgesamt"
 
 #: media/js/zamboni/admin_validation.js:24
 #: media/js/zamboni/devhub.js:1438
-#: media/js/zamboni/editors.js:329
+#: media/js/zamboni/editors.js:336
 msgid "Select an application first"
 msgstr "Wählen Sie zuerst eine Anwendung aus"
 
 #: media/js/zamboni/admin_validation.js:53
 msgid "Set {0} add-on to a max version of {1} and email the author."
 msgid_plural "Set {0} add-ons to a max version of {1} and email the authors."
-msgstr[0] ""
-"{0} Add-on auf eine Max-Version von {1} setzen und Autor per E-Mail "
-"benachrichtigen."
-msgstr[1] ""
-"{0} Add-ons auf eine Max-Version von {1} setzen und Autoren per E-Mail "
-"benachrichtigen."
+msgstr[0] "{0} Add-on auf eine Max-Version von {1} setzen und Autor per E-Mail benachrichtigen."
+msgstr[1] "{0} Add-ons auf eine Max-Version von {1} setzen und Autoren per E-Mail benachrichtigen."
 
 #: media/js/zamboni/admin_validation.js:59
 msgid "This will send emails to the authors of {0} file."
@@ -1567,16 +1551,11 @@ msgstr "Dieses System unterstützt die Installation von Apps nicht."
 
 #: media/js/zamboni/browserid_support.js:37
 msgid "Admins and editors must provide a password to log in."
-msgstr ""
-"Administratoren und Redakteure müssen zum Anmelden ein Passwort angeben."
+msgstr "Administratoren und Redakteure müssen zum Anmelden ein Passwort angeben."
 
 #: media/js/zamboni/browserid_support.js:42
-msgid ""
-"BrowserID login failed. Maybe you don't have an account under that email "
-"address?"
-msgstr ""
-"Login mit BrowserID fehlgeschlagen. Vielleicht haben Sie kein Benutzerkonto "
-"unter dieser E-Mail-Adresse?"
+msgid "BrowserID login failed. Maybe you don't have an account under that email address?"
+msgstr "Login mit BrowserID fehlgeschlagen. Vielleicht haben Sie kein Benutzerkonto unter dieser E-Mail-Adresse?"
 
 #. L10n: {0} is an app name like Firefox.
 #: media/js/zamboni/buttons.js:108
@@ -1593,20 +1572,15 @@ msgstr "Jetzt herunterladen"
 
 #: media/js/zamboni/buttons.js:154
 msgid "Add-on has not been updated to support default-to-compatible."
-msgstr ""
-"Add-on wurde nicht aktualisiert, um standardmäßige Kompatibilität zu "
-"unterstützen."
+msgstr "Add-on wurde nicht aktualisiert, um standardmäßige Kompatibilität zu unterstützen."
 
 #: media/js/zamboni/buttons.js:159
 msgid "You need to be using Firefox 10.0 or higher."
 msgstr "Sie müssen Firefox 10.0 oder höher verwenden."
 
 #: media/js/zamboni/buttons.js:171
-msgid ""
-"Mozilla has marked this version as incompatible with your Firefox version."
-msgstr ""
-"Mozilla hat diese Version als mit Ihrer Firefox-Version inkompatibel "
-"markiert."
+msgid "Mozilla has marked this version as incompatible with your Firefox version."
+msgstr "Mozilla hat diese Version als mit Ihrer Firefox-Version inkompatibel markiert."
 
 #. L10n: {0} is an platform like Windows or Linux.
 #: media/js/zamboni/buttons.js:249
@@ -1637,12 +1611,8 @@ msgstr "Andere Versionen ansehen"
 
 #: media/js/zamboni/buttons.js:597
 #: media/js/zamboni/mobile/buttons.js:39
-msgid ""
-"Sorry, you need a Mozilla-based browser (such as Firefox) to install a "
-"search plugin."
-msgstr ""
-"Es tut uns Leid, Sie benötigen einen Mozilla-basierten Browser (wie "
-"Firefox), um ein Such-Plugin zu installieren."
+msgid "Sorry, you need a Mozilla-based browser (such as Firefox) to install a search plugin."
+msgstr "Es tut uns Leid, Sie benötigen einen Mozilla-basierten Browser (wie Firefox), um ein Such-Plugin zu installieren."
 
 #: media/js/zamboni/collections.js:193
 msgid "clear recently viewed"
@@ -1759,13 +1729,8 @@ msgid "No results found."
 msgstr "Keine Ergebnisse gefunden."
 
 #: media/js/zamboni/discovery_pane.js:217
-msgid ""
-"Sorry, we couldn't find any recommendations for you.<br>Please visit the <a "
-"href=\"{0}\">add-ons site</a> to find an add-on that's right for you."
-msgstr ""
-"Es tut uns Leid, wir konnten keine Empfehlungen für Sie finden.<br>Bitte "
-"besuchen Sie die <a href=\"{0}\">Add-ons-Website</a>, um ein Add-on zu finden, "
-"das zu Ihnen passt."
+msgid "Sorry, we couldn't find any recommendations for you.<br>Please visit the <a href=\"{0}\">add-ons site</a> to find an add-on that's right for you."
+msgstr "Es tut uns Leid, wir konnten keine Empfehlungen für Sie finden.<br>Bitte besuchen Sie die <a href=\"{0}\">Add-ons-Website</a>, um ein Add-on zu finden, das zu Ihnen passt."
 
 #: media/js/zamboni/discovery_pane.js:247
 msgid "Finding recommendations&hellip;"
@@ -1775,45 +1740,49 @@ msgstr "Empfehlungen werden gesucht &hellip;"
 msgid "Updating recommendations&hellip;"
 msgstr "Empfehlungen werden aktualisiert &hellip;"
 
-#: media/js/zamboni/editors.js:160
+#: media/js/zamboni/editors.js:162
 msgid "{name} was viewing this page first."
 msgstr "{name} hat diese Seite zuerst angesehen."
 
-#: media/js/zamboni/editors.js:210
+#: media/js/zamboni/editors.js:212
 msgid "Receipt checked by app."
 msgstr "Quittung wurde von App überprüft."
 
-#: media/js/zamboni/editors.js:212
+#: media/js/zamboni/editors.js:214
 msgid "Receipt was not checked by app."
 msgstr "Quittung wurde nicht von App überprüft."
 
-#: media/js/zamboni/editors.js:278
+#: media/js/zamboni/editors.js:285
 msgid "{name} was viewing this add-on first."
 msgstr "{name} hat sich dieses Add-on zuerst angesehen."
 
-#: media/js/zamboni/editors.js:289
+#: media/js/zamboni/editors.js:296
 msgid "Loading&hellip;"
 msgstr "Wird geladen &hellip;"
 
-#: media/js/zamboni/editors.js:294
+#: media/js/zamboni/editors.js:301
 msgid "Version Notes"
 msgstr "Versionshinweise"
 
-#: media/js/zamboni/editors.js:299
+#: media/js/zamboni/editors.js:306
 msgid "Notes for Reviewers"
 msgstr "Hinweise für Überprüfer"
 
-#: media/js/zamboni/editors.js:304
+#: media/js/zamboni/editors.js:311
 msgid "No version notes found"
 msgstr "Keine Kommentare zur Version gefunden"
 
-#: media/js/zamboni/editors.js:364
+#: media/js/zamboni/editors.js:371
 msgid "Average Reviews"
 msgstr "Durchschnittliche Bewertungen"
 
-#: media/js/zamboni/editors.js:420
+#: media/js/zamboni/editors.js:427
 msgid "Number of Reviews"
 msgstr "Anzahl der Bewertungen"
+
+#: media/js/zamboni/editors.js:486
+msgid "Error loading translation"
+msgstr "Fehler beim Laden der Übersetzung"
 
 #: media/js/zamboni/global.js:416
 msgid "Loading..."
@@ -1846,13 +1815,19 @@ msgstr[1] "Mindestens {0} Zeichen übrig."
 msgid "All"
 msgstr "Alle"
 
-#: media/js/zamboni/validator.js:336
+#: media/js/zamboni/validator.js:337
 msgid "Add-on failed validation."
 msgstr "Add-on hat die Überprüfung nicht bestanden."
 
-#: media/js/zamboni/validator.js:338
+#: media/js/zamboni/validator.js:339
 msgid "Add-on passed validation."
 msgstr "Add-on hat die Überprüfung bestanden."
+
+#: media/js/zamboni/validator.js:374
+msgid "{0} notice"
+msgid_plural "{0} notices"
+msgstr[0] "{0} Nachricht"
+msgstr[1] "{0} Nachrichten"
 
 #: media/js/zamboni/mobile/buttons.js:75
 msgid "Not Updated for {0} {1}"
@@ -1910,3 +1885,4 @@ msgstr "Sie probieren es an!"
 #: media/js/zamboni/mobile/general.js:350
 msgid "Added to Firefox"
 msgstr "Zu Firefox hinzugefügt"
+

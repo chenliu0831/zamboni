@@ -1,4 +1,7 @@
+import json
+
 from django.conf import settings
+from django.core.urlresolvers import reverse
 from django.utils import translation
 
 import commonware.log
@@ -6,11 +9,13 @@ import commonware.log
 import amo
 from addons.models import AddonUser
 from amo.helpers import absolutify
-from amo.utils import find_language, no_translation
+from amo.utils import find_language
+from amo.urlresolvers import reverse
 from constants.applications import DEVICE_TYPES
 from market.models import Price
 from users.models import UserProfile
 
+import mkt
 from mkt.purchase.utils import payments_enabled
 from mkt.regions import REGIONS_CHOICES_ID_DICT
 from mkt.regions.api import RegionResource
@@ -47,95 +52,6 @@ def get_supported_locales(manifest):
         manifest.get('locales', {}).keys()))))
 
 
-def app_to_dict(app, region=None, profile=None, request=None):
-    """Return app data as dict for API."""
-    # Sad circular import issues.
-    from mkt.api.resources import AppResource
-    from mkt.developers.api import AccountResource
-    from mkt.developers.models import AddonPaymentAccount
-    from mkt.submit.api import PreviewResource
-    from mkt.webapps.models import reverse_version
-
-    supported_locales = getattr(app.current_version, 'supported_locales', '')
-
-    content_ratings = {}
-    for cr in app.content_ratings.all():
-        for _region in cr.get_region_slugs():
-            content_ratings.setdefault(_region, []).append({
-                'body': cr.get_body().name,
-                'name': cr.get_rating().name,
-                'description': unicode(cr.get_rating().description),
-            })
-
-    data = {
-        'app_type': app.app_type,
-        'author': app.developer_name,
-        'categories': list(app.categories.values_list('slug', flat=True)),
-        'content_ratings': content_ratings or None,
-        'created': app.created,
-        'current_version': (app.current_version.version if
-                            getattr(app, 'current_version') else None),
-        'default_locale': app.default_locale,
-        'icons': dict([(icon_size,
-                        app.get_icon_url(icon_size))
-                       for icon_size in (16, 48, 64, 128)]),
-        'is_packaged': app.is_packaged,
-        'manifest_url': app.get_manifest_url(),
-        'payment_required': False,
-        'previews': PreviewResource().dehydrate_objects(app.previews.all()),
-        'premium_type': amo.ADDON_PREMIUM_API[app.premium_type],
-        'public_stats': app.public_stats,
-        'price': None,
-        'price_locale': None,
-        'ratings': {'average': app.average_rating,
-                    'count': app.total_reviews},
-        'regions': RegionResource().dehydrate_objects(app.get_regions()),
-        'slug': app.app_slug,
-        'supported_locales': (supported_locales.split(',') if supported_locales
-                              else []),
-        'weekly_downloads': app.weekly_downloads if app.public_stats else None,
-        'versions': dict((v.version, reverse_version(v)) for
-                         v in app.versions.all())
-    }
-
-    data['upsell'] = False
-    if app.upsell and region in app.upsell.premium.get_price_region_ids():
-        upsell = app.upsell.premium
-        data['upsell'] = {
-            'id': upsell.id,
-            'app_slug': upsell.app_slug,
-            'icon_url': upsell.get_icon_url(128),
-            'name': unicode(upsell.name),
-            'resource_uri': AppResource().get_resource_uri(upsell),
-        }
-
-    if app.premium:
-        q = AddonPaymentAccount.objects.filter(addon=app)
-        if len(q) > 0 and q[0].payment_account:
-            data['payment_account'] = AccountResource().get_resource_uri(
-                q[0].payment_account)
-
-        if (region in app.get_price_region_ids() or
-            payments_enabled(request)):
-            data['price'] = app.get_price(region=region)
-            data['price_locale'] = app.get_price_locale(region=region)
-        data['payment_required'] = (bool(app.get_tier().price)
-                                    if app.get_tier() else False)
-
-    with no_translation():
-        data['device_types'] = [n.api_name
-                                for n in app.device_types]
-    if profile:
-        data['user'] = {
-            'developed': app.addonuser_set.filter(
-                user=profile, role=amo.AUTHOR_ROLE_OWNER).exists(),
-            'installed': app.has_installed(profile),
-            'purchased': app.pk in profile.purchase_ids(),
-        }
-
-    return data
-
-
 def get_attr_lang(src, attr, default_locale):
     """
     Our index stores localized strings in elasticsearch as, e.g.,
@@ -161,9 +77,6 @@ def es_app_to_dict(obj, region=None, profile=None, request=None):
     Return app data as dict for API where `app` is the elasticsearch result.
     """
     # Circular import.
-    from mkt.api.base import GenericObject
-    from mkt.api.resources import AppResource, PrivacyPolicyResource
-    from mkt.developers.api import AccountResource
     from mkt.developers.models import AddonPaymentAccount
     from mkt.webapps.models import Installed, Webapp
 
@@ -174,15 +87,28 @@ def es_app_to_dict(obj, region=None, profile=None, request=None):
     is_packaged = src.get('app_type') != amo.ADDON_WEBAPP_HOSTED
     app = Webapp(app_slug=obj.app_slug, is_packaged=is_packaged)
 
-    attrs = ('content_ratings', 'created', 'current_version', 'default_locale',
-             'homepage', 'manifest_url', 'previews', 'ratings', 'status',
+    attrs = ('created', 'current_version', 'default_locale', 'homepage',
+             'is_offline', 'manifest_url', 'previews', 'ratings', 'status',
              'support_email', 'support_url', 'weekly_downloads')
     data = dict((a, getattr(obj, a, None)) for a in attrs)
+
+    if getattr(obj, 'content_ratings', None):
+        for region_key in obj.content_ratings:
+            obj.content_ratings[region_key] = dehydrate_content_rating(
+                obj.content_ratings[region_key])
+
     data.update({
         'absolute_url': absolutify(app.get_detail_url()),
         'app_type': app.app_type,
         'author': src.get('author', ''),
         'categories': [c for c in obj.category],
+        'content_ratings': {
+            'ratings': getattr(obj, 'content_ratings', []),
+            'descriptors': dehydrate_descriptors(
+                getattr(obj, 'content_descriptors', [])),
+            'interactive_elements': dehydrate_interactives(
+                getattr(obj, 'interactive_elements', [])),
+        },
         'description': get_attr_lang(src, 'description', obj.default_locale),
         'device_types': [DEVICE_TYPES[d].api_name for d in src.get('device')],
         'icons': dict((i['size'], i['url']) for i in src.get('icons')),
@@ -191,9 +117,8 @@ def es_app_to_dict(obj, region=None, profile=None, request=None):
         'name': get_attr_lang(src, 'name', obj.default_locale),
         'payment_required': False,
         'premium_type': amo.ADDON_PREMIUM_API[src.get('premium_type')],
-        'privacy_policy': PrivacyPolicyResource().get_resource_uri(
-            GenericObject({'pk': obj._id})
-        ),
+        'privacy_policy': reverse('app-privacy-policy-detail',
+                                  kwargs={'pk': obj._id}),
         'public_stats': obj.has_public_stats,
         'supported_locales': src.get('supported_locales', ''),
         'slug': obj.app_slug,
@@ -214,8 +139,8 @@ def es_app_to_dict(obj, region=None, profile=None, request=None):
     if src.get('premium_type') in amo.ADDON_PREMIUMS:
         acct = list(AddonPaymentAccount.objects.filter(addon=app))
         if acct and acct.payment_account:
-            data['payment_account'] = AccountResource().get_resource_uri(
-                acct.payment_account)
+            data['payment_account'] = reverse('payment-account-detail',
+                kwargs={'pk': acct.payment_account.pk})
     else:
         data['payment_account'] = None
 
@@ -224,8 +149,9 @@ def es_app_to_dict(obj, region=None, profile=None, request=None):
         exclusions = obj.upsell.get('region_exclusions')
         if exclusions is not None and region not in exclusions:
             data['upsell'] = obj.upsell
-            data['upsell']['resource_uri'] = AppResource().get_resource_uri(
-                Webapp(id=obj.upsell['id']))
+            data['upsell']['resource_uri'] = reverse(
+                'app-detail',
+                kwargs={'pk': obj.upsell['id']})
 
     data['price'] = data['price_locale'] = None
     try:
@@ -254,3 +180,63 @@ def es_app_to_dict(obj, region=None, profile=None, request=None):
         }
 
     return data
+
+
+def dehydrate_content_rating(rating):
+    """
+    {body.id, rating.id} to translated {rating labels, names, descriptions}.
+    """
+    try:
+        body = mkt.ratingsbodies.dehydrate_ratings_body(
+            mkt.ratingsbodies.RATINGS_BODIES[int(rating['body'])])
+    except TypeError:
+        # Legacy ES format (bug 943371).
+        return {}
+
+    rating = mkt.ratingsbodies.dehydrate_rating(
+        body.ratings[int(rating['rating'])])
+
+    return {
+        'body': unicode(body.name),
+        'body_label': body.label,
+        'rating': rating.name,
+        'rating_label': rating.label,
+        'description': rating.description
+    }
+
+
+def dehydrate_descriptors(keys):
+    """
+    List of keys to list of objects (desc label, desc name, body).
+
+    ['ESRB_BLOOD, ...] to
+    [{'label': 'esrb-blood', 'name': 'Blood', 'ratings_body': 'esrb'}, ...].
+    """
+    results = []
+    for key in keys:
+        obj = mkt.ratingdescriptors.RATING_DESCS.get(key)
+        if obj:
+            results.append({
+                'label': key.lower().replace('_', '-'),
+                'name': unicode(obj['name']),
+                'ratings_body': key.split('_')[0].lower()
+            })
+    return results
+
+
+def dehydrate_interactives(keys):
+    """
+    List of keys to list of objects (label, name).
+
+    ['SOCIAL_NETWORKING', ...] to
+    [{'label': 'social-networking', 'name': 'Facebocks'}, ...].
+    """
+    results = []
+    for key in keys:
+        obj = mkt.ratinginteractives.RATING_INTERACTIVES.get(key)
+        if obj:
+            results.append({
+                'label': key.lower().replace('_', '-'),
+                'name': unicode(obj['name']),
+            })
+    return results

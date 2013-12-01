@@ -1,7 +1,7 @@
 # Albanian translation of addons.mozilla.org package.
 # Copyright (C) 2009 THE addons.mozilla.org'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the addons.mozilla.org package.
-# Besnik Bleta <besnik@programeshqip.org>, 2006-2012.
+# Besnik Bleta <besnik@programeshqip.org>, 2006-2013.
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
@@ -234,7 +234,7 @@ msgstr "Kod Sort Hollandez/US"
 
 #: media/js/devreg/payments-enroll.js:19
 msgid "Canadian Transit Number/German Routing Code"
-msgstr "Numër Tranziti Kanadez/Kod Routing Gjerman"
+msgstr "Numër Transiti Kanadez/Kod Routing Gjerman"
 
 #: media/js/devreg/payments-enroll.js:21
 msgid "Korean Bank and Branch/Indonesian Bank Code"
@@ -273,8 +273,8 @@ msgstr "U zbulua: {0}"
 #: media/js/devreg/payments-manage.js:24
 msgid "Warning: deleting payment account \"{0}\" will move that associated app to an incomplete status and it will no longer be available for sale:"
 msgid_plural "Warning: deleting payment account \"{0}\" will move those associated apps to an incomplete status and they will no longer be available for sale:"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "Kujdes: fshirja e llogarisë së pagesave \"{0}\" do t'ia kalojë gjendjen zbatimit të përshoqëruar si jo i plotë dhe nuk do të jetë më i gatshëm për shitje:"
+msgstr[1] "Kujdes: fshirja e llogarisë së pagesave \"{0}\" do t'ua kalojë gjendjen zbatimeve të përshoqëruar si jo të plotë dhe nuk do të jenë më të gatshëm për shitje:"
 
 #: media/js/devreg/payments-manage.js:56 media/js/devreg/payments-manage.js:101 media/js/devreg/validator.js:193 media/js/devreg/validator.js:438 media/js/devreg/validator.js:457
 #: media/js/mkt/buttons.js:85 media/js/mkt/buttons.js:94 media/js/zamboni/validator.js:193 media/js/zamboni/validator.js:446 media/js/zamboni/validator.js:465
@@ -509,7 +509,7 @@ msgstr "Shtesa të Përditësuara"
 
 #: media/js/impala/stats/csv_keys.js:24
 msgid "Reviews Written"
-msgstr "Shqyrtime të Shkruajtura"
+msgstr "Shqyrtime të Shkruara"
 
 #: media/js/impala/stats/csv_keys.js:27
 msgid "User Signups"
@@ -948,7 +948,7 @@ msgstr "Manifesti nuk u gjet dot në vendin e treguar."
 
 #: media/js/mkt/apps.js:87 media/js/zamboni/apps.js:60
 msgid "App host could not be reached."
-msgstr ""
+msgstr "Nuk u kap dot streha e zbatimit."
 
 #: media/js/mkt/apps.js:90 media/js/zamboni/apps.js:63
 msgid "App manifest is unparsable."
@@ -1052,11 +1052,11 @@ msgstr "Pagimi dështoi. Riprovoni më vonë."
 
 #: media/js/mkt/reviewers.js:98
 msgid "Packaged App"
-msgstr ""
+msgstr "Zbatim i Paketuar"
 
 #: media/js/mkt/reviewers.js:102
 msgid "Privileged App"
-msgstr ""
+msgstr "Zbatim i Privilegjuar"
 
 #: media/js/mkt/reviewers.js:105
 msgid "More Information Requested"
@@ -1187,7 +1187,7 @@ msgstr "Përdorues të Rinj"
 
 #: media/js/mkt/stats/csv_keys.js:48 media/js/mkt/stats/csv_keys.js:204 media/js/mkt/stats/csv_keys.js:205
 msgid "Total Users"
-msgstr "Përdoruesa Gjithsej"
+msgstr "Përdorues Gjithsej"
 
 #: media/js/mkt/stats/csv_keys.js:51 media/js/mkt/stats/csv_keys.js:212 media/js/mkt/stats/csv_keys.js:213
 msgid "Total Visitors"
@@ -1340,7 +1340,7 @@ msgstr "Shkarkojeni Tani"
 
 #: media/js/zamboni/buttons.js:154
 msgid "Add-on has not been updated to support default-to-compatible."
-msgstr ""
+msgstr "Shtesa nuk është përditësuar për të mbuluar parazgjedhje-në-e-përputhshme."
 
 #: media/js/zamboni/buttons.js:159
 msgid "You need to be using Firefox 10.0 or higher."
@@ -1430,7 +1430,7 @@ msgstr "Lypset një adresë email."
 
 #: media/js/zamboni/collections.js:498
 msgid "You cannot add yourself as a contributor."
-msgstr "Nuk mund të shtoni vetveten si kontributor."
+msgstr "Nuk mund të shtoni vetveten si kontribues."
 
 #: media/js/zamboni/collections.js:500
 msgid "You have already added that user."
@@ -1510,11 +1510,11 @@ msgstr "{name} po e shihte së pari këtë faqe."
 
 #: media/js/zamboni/editors.js:210
 msgid "Receipt checked by app."
-msgstr ""
+msgstr "Dëftesa u kontrollua nga zbatimi."
 
 #: media/js/zamboni/editors.js:212
 msgid "Receipt was not checked by app."
-msgstr ""
+msgstr "Dëftesa nuk qe kontrolluar nga zbatimi."
 
 #: media/js/zamboni/editors.js:278
 msgid "{name} was viewing this add-on first."
@@ -1584,7 +1584,7 @@ msgstr "Shtesa e kaloi provën e vleftësimit."
 
 #: media/js/zamboni/mobile/buttons.js:75
 msgid "Not Updated for {0} {1}"
-msgstr "E Papërditësuar për {0} {1}"
+msgstr "Nuk Është Përditësuar për {0} {1}"
 
 #: media/js/zamboni/mobile/buttons.js:76
 msgid "Requires Newer Version of {0}"

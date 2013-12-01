@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import functools
+import hashlib
 import json
 import os
 import shutil
@@ -12,6 +13,7 @@ from django.conf import settings
 from django.core import mail
 from django.core.files.storage import default_storage as storage
 from django.db.models.signals import post_delete, post_save
+from django.test.utils import override_settings
 from django.utils.translation import ugettext_lazy as _
 
 import mock
@@ -24,7 +26,6 @@ from addons.signals import version_changed as version_changed_signal
 from amo.helpers import absolutify
 from amo.tests import app_factory, version_factory
 from amo.urlresolvers import reverse
-from comm.utils import create_comm_thread
 from constants.applications import DEVICE_TYPES
 from editors.models import EscalationQueue, RereviewQueue
 from files.models import File
@@ -32,19 +33,23 @@ from files.tests.test_models import UploadTest as BaseUploadTest
 from files.utils import WebAppParser
 from lib.crypto import packaged
 from lib.crypto.tests import mock_sign
+from lib.iarc.utils import (DESC_MAPPING, INTERACTIVES_MAPPING,
+                            REVERSE_DESC_MAPPING, REVERSE_INTERACTIVES_MAPPING)
 from market.models import AddonPremium, Price
 from users.models import UserProfile
 from versions.models import update_status, Version
 
 import mkt
-from mkt.constants import APP_FEATURES, apps
-from mkt.constants.ratingsdescriptors import RATING_DESCS
+from mkt.constants import apps
+from mkt.developers.models import (AddonPaymentAccount, PaymentAccount,
+                                   SolitudeSeller)
 from mkt.site.fixtures import fixture
+from mkt.site.tests import DynamicBoolFieldsTestMixin
 from mkt.submit.tests.test_views import BasePackagedAppTest, BaseWebAppTest
 from mkt.webapps.models import (AddonExcludedRegion, AppFeatures, AppManifest,
                                 ContentRating, Geodata, get_excluded_in,
-                                Installed, RatingDescriptors, Webapp,
-                                WebappIndexer)
+                                IARCInfo, Installed, RatingDescriptors,
+                                RatingInteractives, Webapp, WebappIndexer)
 
 
 class TestWebapp(amo.tests.TestCase):
@@ -129,7 +134,11 @@ class TestWebapp(amo.tests.TestCase):
 
     def test_get_api_url(self):
         webapp = Webapp(app_slug='woo', pk=1)
-        eq_(webapp.get_api_url(), '/api/v1/apps/app/woo/')
+        eq_(webapp.get_api_url(), '/api/apps/app/woo/')
+
+    def test_get_api_url_pk(self):
+        webapp = Webapp(pk=1)
+        eq_(webapp.get_api_url(pk=True), '/api/apps/app/1/')
 
     def test_get_stats_url(self):
         webapp = Webapp(app_slug='woo')
@@ -142,15 +151,8 @@ class TestWebapp(amo.tests.TestCase):
         eq_(url, '/app/woo/statistics/installs-day-20120101-20120201.json')
 
     def test_get_comm_thread_url(self):
-        self.create_switch('comm-dashboard')
-        webapp = app_factory()
-        eq_(webapp.get_comm_thread_url(), '/comm/')
-
-        thread, note = create_comm_thread(
-            addon=webapp, version=webapp.versions.get(), perms=[],
-            action='approve', comments='lol',
-            profile=UserProfile.objects.create(username='lol'))
-        eq_(webapp.get_comm_thread_url(), '/comm/thread/%s' % thread.id)
+        app = app_factory(app_slug='putain')
+        eq_(app.get_comm_thread_url(), '/comm/app/putain')
 
     def test_get_origin(self):
         url = 'http://www.xx.com:4000/randompath/manifest.webapp'
@@ -479,8 +481,274 @@ class TestWebapp(amo.tests.TestCase):
 
     def test_rated(self):
         self.create_switch('iarc')
-        assert app_factory().is_rated()
-        assert not app_factory(unrated=True).is_rated()
+        assert app_factory(rated=True).is_rated()
+        assert not app_factory().is_rated()
+
+    @mock.patch('mkt.webapps.models.Webapp.is_complete')
+    @mock.patch('mkt.webapps.models.Webapp.has_payment_account')
+    def test_set_content_ratings(self, pay_mock, complete_mock):
+        self.create_switch('iarc')
+        pay_mock.return_value = True
+        complete_mock.return_value = (True, [])
+
+        rb = mkt.ratingsbodies
+
+        app = app_factory(status=amo.STATUS_NULL)
+        app.set_content_ratings({})
+        assert not app.is_rated()
+        eq_(app.status, amo.STATUS_NULL)
+
+        # Create.
+        app.set_content_ratings({
+            rb.CLASSIND: rb.CLASSIND_L,
+            rb.PEGI: rb.PEGI_3,
+        })
+        eq_(ContentRating.objects.count(), 2)
+        for expected in [(rb.CLASSIND.id, rb.CLASSIND_L.id),
+                         (rb.PEGI.id, rb.PEGI_3.id)]:
+            assert ContentRating.objects.filter(
+                addon=app, ratings_body=expected[0],
+                rating=expected[1]).exists()
+        eq_(app.reload().status, amo.STATUS_PENDING)
+
+        # Update.
+        app.set_content_ratings({
+            rb.CLASSIND: rb.CLASSIND_10,
+            rb.PEGI: rb.PEGI_3,
+            rb.GENERIC: rb.GENERIC_18,
+        })
+        eq_(ContentRating.objects.count(), 3)
+        for expected in [(rb.CLASSIND.id, rb.CLASSIND_10.id),
+                         (rb.PEGI.id, rb.PEGI_3.id),
+                         (rb.GENERIC.id, rb.GENERIC_18.id)]:
+            assert ContentRating.objects.filter(
+                addon=app, ratings_body=expected[0],
+                rating=expected[1]).exists()
+        eq_(app.reload().status, amo.STATUS_PENDING)
+
+    def test_set_descriptors(self):
+        app = app_factory()
+        eq_(RatingDescriptors.objects.count(), 0)
+        app.set_descriptors([])
+        eq_(RatingDescriptors.objects.count(), 1)
+
+        descriptors = RatingDescriptors.objects.get(addon=app)
+        assert not descriptors.has_classind_drugs
+        assert not descriptors.has_esrb_blood  # Blood-deuh!
+
+        # Create.
+        app.set_descriptors([
+            'has_classind_drugs', 'has_pegi_scary', 'has_generic_drug_ref'
+        ])
+        eq_(RatingDescriptors.objects.count(), 1)
+        descriptors = RatingDescriptors.objects.get(addon=app)
+        assert descriptors.has_classind_drugs
+        assert descriptors.has_pegi_scary
+        assert descriptors.has_generic_drug_ref
+        assert not descriptors.has_esrb_blood
+
+        # Update.
+        app.set_descriptors([
+            'has_esrb_blood', 'has_classind_drugs'
+        ])
+        eq_(RatingDescriptors.objects.count(), 1)
+        descriptors = RatingDescriptors.objects.get(addon=app)
+        assert descriptors.has_esrb_blood
+        assert descriptors.has_classind_drugs
+        assert not descriptors.has_pegi_scary
+        assert not descriptors.has_generic_drug_ref
+
+    def test_set_interactives(self):
+        app = app_factory()
+        app.set_interactives([])
+        eq_(RatingInteractives.objects.count(), 1)
+        app_interactives = RatingInteractives.objects.get(addon=app)
+        assert not app_interactives.has_shares_info
+        assert not app_interactives.has_digital_purchases
+
+        # Create.
+        app.set_interactives([
+            'has_shares_info', 'has_digital_PurChaSes', 'has_UWOTM8'
+        ])
+        eq_(RatingInteractives.objects.count(), 1)
+        app_interactives = RatingInteractives.objects.get(addon=app)
+        assert app_interactives.has_shares_info
+        assert app_interactives.has_digital_purchases
+        assert not app_interactives.has_users_interact
+
+        # Update.
+        app.set_interactives([
+            'has_digital_content_portaL', 'has_digital_purchases',
+            'has_shares_ur_mum'
+        ])
+        eq_(RatingInteractives.objects.count(), 1)
+        app_interactives = RatingInteractives.objects.get(addon=app)
+        assert not app_interactives.has_shares_info
+        assert app_interactives.has_digital_content_portal
+        assert app_interactives.has_digital_purchases
+
+    @mock.patch('lib.iarc.client.MockClient.call')
+    @mock.patch('mkt.webapps.models.render_xml')
+    def test_set_iarc_storefront_data(self, render_mock, storefront_mock):
+        # Set up ratings/descriptors/interactives.
+        self.create_switch('iarc')
+        app = app_factory(name='LOL')
+        app.set_iarc_info(submission_id='1234', security_code='sektor')
+        app.set_descriptors(['has_esrb_blood', 'has_pegi_scary'])
+        app.set_interactives(['has_users_interact', 'has_shares_info'])
+        app.set_content_ratings({
+            mkt.ratingsbodies.ESRB: mkt.ratingsbodies.ESRB_A,
+            mkt.ratingsbodies.PEGI: mkt.ratingsbodies.PEGI_3,
+        })
+
+        # Check the client was called.
+        app.set_iarc_storefront_data()
+        assert storefront_mock.called
+
+        eq_(render_mock.call_count, 2)
+        eq_(render_mock.call_args_list[0][0][0], 'set_storefront_data.xml')
+
+        # Check arguments to the XML template are all correct.
+        data = render_mock.call_args_list[0][0][1]
+        eq_(type(data['title']), unicode)
+        eq_(data['submission_id'], 1234)
+        eq_(data['security_code'], 'sektor')
+        eq_(data['rating'], 'Adults Only')
+        eq_(data['title'], 'LOL')
+        eq_(data['rating_system'], 'ESRB')
+        eq_(data['descriptors'], 'Blood')
+        self.assertSetEqual(data['interactive_elements'].split(', '),
+                            ['Shares Info', 'Users Interact'])
+
+        data = render_mock.call_args_list[1][0][1]
+        eq_(type(data['title']), unicode)
+        eq_(data['submission_id'], 1234)
+        eq_(data['security_code'], 'sektor')
+        eq_(data['rating'], '3+')
+        eq_(data['title'], 'LOL')
+        eq_(data['rating_system'], 'PEGI')
+        eq_(data['descriptors'], 'Fear')
+
+    def test_set_iarc_storefront_data_not_rated_by_iarc(self):
+        self.create_switch('iarc')
+        assert not app_factory().set_iarc_storefront_data()
+
+    @mock.patch('mkt.webapps.models.render_xml')
+    @mock.patch('lib.iarc.client.MockClient.call')
+    def test_set_iarc_storefront_data_disable(self, storefront_mock,
+                                              render_mock):
+        self.create_switch('iarc')
+        app = app_factory(rated=True)
+        app.set_iarc_info(123, 'abc')
+        app.set_iarc_storefront_data(disable=True)
+        data = render_mock.call_args_list[0][0][1]
+        eq_(data['release_date'], '')
+
+    def test_get_descriptors_es(self):
+        app = app_factory()
+        eq_(app.get_descriptors(es=True), [])
+
+        app.set_descriptors(['has_esrb_blood', 'has_pegi_scary'])
+        self.assertSetEqual(
+            app.get_descriptors(es=True), ['ESRB_BLOOD', 'PEGI_SCARY'])
+
+    def test_get_descriptors_dehydrated(self):
+        app = app_factory()
+        eq_(app.get_descriptors(), [])
+
+        app.set_descriptors(['has_esrb_blood', 'has_pegi_scary'])
+        eq_(sorted(app.get_descriptors(), key=lambda x: x['name']),
+            [{'label': 'esrb-blood', 'name': 'Blood', 'ratings_body': 'esrb'},
+             {'label': 'pegi-scary', 'name': 'Fear', 'ratings_body': 'pegi'}])
+
+    def test_get_descriptors_by_body(self):
+        app = app_factory()
+        app.set_descriptors(['has_esrb_blood', 'has_pegi_scary'])
+
+        eq_(app.get_descriptors(body='esrb'),
+            [{'label': 'esrb-blood', 'name': 'Blood', 'ratings_body': 'esrb'}])
+        eq_(app.get_descriptors(body='pegi'),
+            [{'label': 'pegi-scary', 'name': 'Fear', 'ratings_body': 'pegi'}])
+
+    def test_get_interactives_es(self):
+        app = app_factory()
+        eq_(app.get_interactives(es=True), [])
+
+        app.set_interactives(['has_social_networking', 'has_shares_info'])
+        self.assertSetEqual(app.get_interactives(es=True),
+                            ['SOCIAL_NETWORKING', 'SHARES_INFO'])
+
+    def test_get_interactives_dehydrated(self):
+        app = app_factory()
+        eq_(app.get_interactives(), [])
+
+        app.set_interactives(['has_social_networking', 'has_shares_info'])
+        eq_(app.get_interactives(),
+            [{'label': 'shares-info', 'name': 'Shares Info'},
+             {'label': 'social-networking', 'name': 'Social Networking'}])
+
+    def test_has_payment_account(self):
+        app = app_factory()
+        assert not app.has_payment_account()
+
+        user = UserProfile.objects.create(email='a', username='b')
+        payment = PaymentAccount.objects.create(
+            solitude_seller=SolitudeSeller.objects.create(user=user),
+            user=user)
+        AddonPaymentAccount.objects.create(addon=app, payment_account=payment)
+        assert app.has_payment_account()
+
+    @override_settings(SECRET_KEY='test')
+    def test_iarc_token(self):
+        app = Webapp()
+        app.id = 1
+        eq_(app.iarc_token(),
+            hashlib.sha512(settings.SECRET_KEY + str(app.id)).hexdigest())
+
+    def test_is_fully_complete_not_done(self):
+        self.create_switch('iarc')
+        app = app_factory(premium_type=amo.ADDON_PREMIUM)
+
+        is_complete, reasons = app.is_fully_complete()
+        assert not is_complete
+        for reason in ('details', 'content_ratings', 'payments'):
+            assert not reasons[reason]
+
+    @mock.patch('mkt.webapps.models.Webapp.is_complete')
+    @mock.patch('mkt.webapps.models.Webapp.is_rated')
+    @mock.patch('mkt.webapps.models.Webapp.has_payment_account')
+    def test_is_fully_complete_done(self, mock1, mock2, complete_mock):
+        self.create_switch('iarc')
+        mock1.return_value = True
+        mock2.return_value = True
+        complete_mock.return_value = (True, [])
+
+        app = app_factory()
+        is_complete, reasons = app.is_fully_complete()
+        assert is_complete
+        assert reasons['details']
+        assert reasons['content_ratings']
+        assert reasons['payments']
+
+    @mock.patch('mkt.webapps.models.cache.get')
+    def test_is_offline_when_packaged(self, mock_get):
+        mock_get.return_value = ''
+        eq_(Webapp(is_packaged=True).is_offline, True)
+        eq_(Webapp(is_packaged=False).is_offline, False)
+
+    def test_is_offline_when_appcache_path(self):
+        app = app_factory()
+        manifest = {'name': 'Swag'}
+
+        # If there's no appcache_path defined, ain't an offline-capable app.
+        am = AppManifest.objects.create(version=app.current_version,
+                                        manifest=json.dumps(manifest))
+        eq_(app.is_offline, False)
+
+        # If there's an appcache_path defined, this is an offline-capable app.
+        manifest['appcache_path'] = '/manifest.appcache'
+        am.update(manifest=json.dumps(manifest))
+        eq_(app.reload().is_offline, True)
 
 
 class DeletedAppTests(amo.tests.ESTestCase):
@@ -569,7 +837,7 @@ class TestPackagedAppManifestUpdates(amo.tests.TestCase):
             'name': u'Good App Name',
         }
         latest_version = version_factory(addon=self.webapp, version='2.3',
-            file_kw=dict(status=amo.STATUS_OBSOLETE))
+            file_kw=dict(status=amo.STATUS_DISABLED))
         current_version = self.webapp.current_version
         AppManifest.objects.create(version=current_version,
                                    manifest=json.dumps(good_manifest))
@@ -648,8 +916,8 @@ class TestWebappManager(amo.tests.TestCase):
 
     def test_rated(self):
         self.create_switch('iarc')
-        rated = app_factory()
-        app_factory(unrated=True)
+        rated = app_factory(rated=True)
+        app_factory()
         eq_(Webapp.objects.count(), 2)
         eq_(list(Webapp.objects.rated()), [rated])
 
@@ -759,7 +1027,7 @@ class TestPackagedManifest(BasePackagedAppTest):
         # Post an app, then emulate a reviewer reject and add a new, pending
         # version.
         webapp = self.post_addon()
-        webapp.latest_version.files.update(status=amo.STATUS_OBSOLETE)
+        webapp.latest_version.files.update(status=amo.STATUS_DISABLED)
         webapp.latest_version.update(created=self.days_ago(1))
         webapp.update(status=amo.STATUS_REJECTED, _current_version=None)
         version = version_factory(addon=webapp, version='2.0',
@@ -957,12 +1225,11 @@ class TestContentRating(amo.tests.WebappTestCase):
     def setUp(self):
         self.app = self.get_app()
 
-    @mock.patch.object(mkt.regions.BR, 'ratingsbodies',
-                       (mkt.ratingsbodies.CLASSIND,))
-    @mock.patch.object(mkt.regions.US, 'ratingsbodies',
-                       (mkt.ratingsbodies.ESRB,))
-    @mock.patch.object(mkt.regions.VE, 'ratingsbodies',
-                       (mkt.ratingsbodies.GENERIC,))
+    @mock.patch.object(mkt.regions.BR, 'ratingsbody',
+                       mkt.ratingsbodies.CLASSIND)
+    @mock.patch.object(mkt.regions.US, 'ratingsbody', mkt.ratingsbodies.ESRB)
+    @mock.patch.object(mkt.regions.VE, 'ratingsbody',
+                       mkt.ratingsbodies.GENERIC)
     def test_get_regions_and_slugs(self):
         classind_rating = ContentRating.objects.create(
             addon=self.app, ratings_body=mkt.ratingsbodies.CLASSIND.id,
@@ -977,12 +1244,11 @@ class TestContentRating(amo.tests.WebappTestCase):
         assert mkt.regions.US.slug not in slugs
         assert mkt.regions.VE.slug not in slugs
 
-    @mock.patch.object(mkt.regions.BR, 'ratingsbodies',
-                       (mkt.ratingsbodies.CLASSIND,))
-    @mock.patch.object(mkt.regions.DE, 'ratingsbodies',
-                       (mkt.ratingsbodies.ESRB,))
-    @mock.patch.object(mkt.regions.VE, 'ratingsbodies',
-                       (mkt.ratingsbodies.GENERIC,))
+    @mock.patch.object(mkt.regions.BR, 'ratingsbody',
+                       mkt.ratingsbodies.CLASSIND)
+    @mock.patch.object(mkt.regions.DE, 'ratingsbody', mkt.ratingsbodies.ESRB)
+    @mock.patch.object(mkt.regions.VE, 'ratingsbody',
+                       mkt.ratingsbodies.GENERIC)
     def test_get_regions_and_slugs_generic_fallback(self):
         gen_rating = ContentRating.objects.create(
             addon=self.app, ratings_body=mkt.ratingsbodies.GENERIC.id,
@@ -999,6 +1265,24 @@ class TestContentRating(amo.tests.WebappTestCase):
 
         # We have a catch-all 'generic' region for all regions wo/ r.body.
         assert mkt.regions.GENERIC_RATING_REGION_SLUG in slugs
+
+    @mock.patch.object(mkt.ratingsbodies.CLASSIND, 'name', 'CLASSIND')
+    @mock.patch.object(mkt.ratingsbodies.CLASSIND_10, 'name', '10+')
+    @mock.patch.object(mkt.ratingsbodies.ESRB_E, 'name', 'Everybody 10+')
+    @mock.patch.object(mkt.ratingsbodies.ESRB_E, 'label', '10')
+    def test_get_ratings(self):
+        # Infer the label from the name.
+        cr = ContentRating.objects.create(
+            addon=self.app, ratings_body=mkt.ratingsbodies.CLASSIND.id,
+            rating=mkt.ratingsbodies.CLASSIND_10.id)
+        eq_(cr.get_rating().label, '10')
+        eq_(cr.get_body().label, 'classind')
+
+        # When already has label set.
+        eq_(ContentRating.objects.create(
+                addon=self.app, ratings_body=mkt.ratingsbodies.ESRB.id,
+                rating=mkt.ratingsbodies.ESRB_E.id).get_rating().label,
+            '10')
 
 
 class TestContentRatingsIn(amo.tests.WebappTestCase):
@@ -1034,9 +1318,9 @@ class TestContentRatingsIn(amo.tests.WebappTestCase):
                 [])
             eq_(self.app.content_ratings_in(region=region, category=cat), [])
 
-    @mock.patch.object(mkt.regions.CO, 'ratingsbodies', ())
-    @mock.patch.object(mkt.regions.BR, 'ratingsbodies',
-                       (mkt.ratingsbodies.CLASSIND,))
+    @mock.patch.object(mkt.regions.CO, 'ratingsbody', None)
+    @mock.patch.object(mkt.regions.BR, 'ratingsbody',
+                       mkt.ratingsbodies.CLASSIND)
     def test_generic_fallback(self):
         # Test region with no rating body returns generic content rating.
         crs = ContentRating.objects.create(
@@ -1046,6 +1330,19 @@ class TestContentRatingsIn(amo.tests.WebappTestCase):
 
         # Test region with rating body does not include generic content rating.
         assert crs not in self.app.content_ratings_in(region=mkt.regions.BR)
+
+
+class TestIARCInfo(amo.tests.WebappTestCase):
+
+    def test_no_info(self):
+        with self.assertRaises(IARCInfo.DoesNotExist):
+            self.app.iarc_info
+
+    def test_info(self):
+        IARCInfo.objects.create(addon=self.app, submission_id=1,
+                                security_code='s3kr3t')
+        eq_(self.app.iarc_info.submission_id, 1)
+        eq_(self.app.iarc_info.security_code, 's3kr3t')
 
 
 class TestQueue(amo.tests.WebappTestCase):
@@ -1125,7 +1422,7 @@ class TestUpdateStatus(amo.tests.TestCase):
 
     def test_one_version_pending(self):
         app = amo.tests.app_factory(status=amo.STATUS_REJECTED,
-                                    file_kw=dict(status=amo.STATUS_OBSOLETE))
+                                    file_kw=dict(status=amo.STATUS_DISABLED))
         amo.tests.version_factory(addon=app,
                                   file_kw=dict(status=amo.STATUS_PENDING))
         app.update_status()
@@ -1134,7 +1431,7 @@ class TestUpdateStatus(amo.tests.TestCase):
     def test_one_version_public(self):
         app = amo.tests.app_factory(status=amo.STATUS_PUBLIC)
         amo.tests.version_factory(addon=app,
-                                  file_kw=dict(status=amo.STATUS_OBSOLETE))
+                                  file_kw=dict(status=amo.STATUS_DISABLED))
         app.update_status()
         eq_(app.status, amo.STATUS_PUBLIC)
 
@@ -1167,48 +1464,23 @@ class TestInstalled(amo.tests.TestCase):
         assert self.m(install_type=apps.INSTALL_TYPE_REVIEWER)[1]
 
 
-class TestAppFeatures(amo.tests.TestCase):
-    fixtures = fixture('webapp_337141')
+class TestAppFeatures(DynamicBoolFieldsTestMixin, amo.tests.TestCase):
 
     def setUp(self):
-        self.app = Addon.objects.get(pk=337141)
+        super(TestAppFeatures, self).setUp()
+
+        self.model = AppFeatures
+        self.related_name = 'features'
+
+        self.BOOL_DICT = mkt.constants.features.APP_FEATURES
         self.flags = ('APPS', 'GEOLOCATION', 'PAY', 'SMS')
         self.expected = [u'App Management API', u'Geolocation', u'Web Payment',
                          u'WebSMS']
-        self.create_switch('buchets')
 
-    def _flag(self):
-        """Flag app with a handful of feature flags for testing."""
-        self.app.current_version.features.update(
-            **dict(('has_%s' % f.lower(), True) for f in self.flags))
+        self.af = AppFeatures.objects.get()
 
-    def _check(self, obj=None):
-        if not obj:
-            obj = self.app.current_version.features
-
-        for feature in APP_FEATURES:
-            field = 'has_%s' % feature.lower()
-            value = feature in self.flags
-            if isinstance(obj, dict):
-                eq_(obj[field], value,
-                    u'Unexpected value for field: %s' % field)
-            else:
-                eq_(getattr(obj, field), value,
-                    u'Unexpected value for field: %s' % field)
-
-    def to_unicode(self, items):
-        """
-        Force unicode evaluation of lazy items in the passed list, for set
-        comparison to a list of already-evaluated unicode strings.
-        """
-        return [unicode(i) for i in items]
-
-    def test_features(self):
-        self._flag()
-        self._check()
-
-    def test_no_features(self):
-        eq_(self.app.current_version.features.to_list(), [])
+    def _get_related_bool_obj(self):
+        return getattr(self.app.current_version, self.related_name)
 
     def test_signature_parity(self):
         # Test flags -> signature -> flags works as expected.
@@ -1216,37 +1488,16 @@ class TestAppFeatures(amo.tests.TestCase):
         signature = self.app.current_version.features.to_signature()
         eq_(signature.count('.'), 2, 'Unexpected signature format')
 
-        af = AppFeatures(version=self.app.current_version)
-        af.set_flags(signature)
-        self._check(af)
-
-    def test_to_dict(self):
-        self._flag()
-        self._check(self.app.current_version.features.to_dict())
-
-    def test_to_list(self):
-        self._flag()
-        to_list = self.app.current_version.features.to_list()
-        self.assertSetEqual(self.to_unicode(to_list), self.expected)
-
-    @mock.patch.dict('mkt.webapps.models.APP_FEATURES',
-                     APPS={'name': _(u'H\xe9llo')})
-    def test_to_list_nonascii(self):
-        self.expected[0] = u'H\xe9llo'
-        self._flag()
-        to_list = self.app.current_version.features.to_list()
-        self.assertSetEqual(self.to_unicode(to_list), self.expected)
+        self.af.set_flags(signature)
+        self._check(self.af)
 
     def test_bad_data(self):
-        af = AppFeatures(version=self.app.current_version)
-        af.set_flags('foo')
-        af.set_flags('<script>')
+        self.af.set_flags('foo')
+        self.af.set_flags('<script>')
 
-    def test_new_app_features_version(self):
-        # Test that the old appfeatures profile in the fixture sets the new app
-        # features to False by default.
-        af = AppFeatures(version=self.app.current_version)
-        eq_(af.has_webrtc_media, False)
+    def test_default_false(self):
+        obj = self.model(version=self.app.current_version)
+        eq_(getattr(obj, 'has_%s' % self.flags[0].lower()), False)
 
 
 class TestWebappIndexer(amo.tests.TestCase):
@@ -1352,11 +1603,8 @@ class TestWebappIndexer(amo.tests.TestCase):
         obj, doc = self._get_doc()
         eq_(doc['is_escalated'], True)
 
-    @mock.patch.object(mkt.regions.BR, 'ratingsbodies',
-                       (mkt.ratingsbodies.PEGI,))
-    @mock.patch.object(mkt.ratingsbodies.PEGI, 'name', 'peggyhill')
-    @mock.patch.object(mkt.ratingsbodies.PEGI_12, 'name', '9000+')
-    @mock.patch.object(mkt.ratingsbodies.PEGI_12, 'description', 'be old')
+    @mock.patch.object(mkt.regions.BR, 'ratingsbody',
+                       mkt.ratingsbodies.PEGI)
     def test_extract_content_ratings(self):
         # These ones shouldn't appear, outside region.
         ContentRating.objects.create(
@@ -1371,16 +1619,12 @@ class TestWebappIndexer(amo.tests.TestCase):
             addon=self.app, ratings_body=mkt.ratingsbodies.PEGI.id,
             rating=mkt.ratingsbodies.PEGI_12.id)
         obj, doc = self._get_doc()
-        eq_(doc['content_ratings']['br'][0], {
-            'body': 'peggyhill',
-            'name': '9000+',
-            'description': unicode('be old')})
+        eq_(doc['content_ratings']['br'],
+            {'body': mkt.ratingsbodies.PEGI.id,
+             'rating': mkt.ratingsbodies.PEGI_12.id})
 
-    @mock.patch.object(mkt.regions.VE, 'ratingsbodies', ())
-    @mock.patch.object(mkt.regions.RS, 'ratingsbodies', ())
-    @mock.patch.object(mkt.ratingsbodies.GENERIC, 'name', 'genny')
-    @mock.patch.object(mkt.ratingsbodies.GENERIC_12, 'name', 'genny-name')
-    @mock.patch.object(mkt.ratingsbodies.GENERIC_12, 'description', 'g-desc')
+    @mock.patch.object(mkt.regions.VE, 'ratingsbody', None)
+    @mock.patch.object(mkt.regions.RS, 'ratingsbody', None)
     def test_extract_content_ratings_generic_fallback(self):
         # These ones shouldn't appear, they are associated w/ region.
         ContentRating.objects.create(
@@ -1397,10 +1641,9 @@ class TestWebappIndexer(amo.tests.TestCase):
             addon=self.app, ratings_body=mkt.ratingsbodies.GENERIC.id,
             rating=mkt.ratingsbodies.GENERIC_12.id)
         obj, doc = self._get_doc()
-        eq_(doc['content_ratings']['generic'][0], {
-            'body': 'genny',
-            'name': 'genny-name',
-            'description': unicode('g-desc')})
+        eq_(doc['content_ratings']['generic'],
+            {'body': mkt.ratingsbodies.GENERIC.id,
+             'rating': mkt.ratingsbodies.GENERIC_12.id})
 
         # Make sure the content rating is shoved in the generic region,
         # not the actual regions (it'd be redundant).
@@ -1408,59 +1651,21 @@ class TestWebappIndexer(amo.tests.TestCase):
         assert 've' not in doc['content_ratings']
 
 
-class TestRatingDescriptors(amo.tests.TestCase):
-    fixtures = fixture('webapp_337141')
+class TestRatingDescriptors(DynamicBoolFieldsTestMixin, amo.tests.TestCase):
 
     def setUp(self):
-        self.app = Webapp.objects.get(pk=337141)
-        RatingDescriptors.objects.create(addon=self.app)
+        super(TestRatingDescriptors, self).setUp()
+        self.model = RatingDescriptors
+        self.related_name = 'rating_descriptors'
+
+        self.BOOL_DICT = mkt.ratingdescriptors.RATING_DESCS
         self.flags = ('USK_NO_DESCS', 'ESRB_VIOLENCE', 'PEGI_LANG',
                       'CLASSIND_DRUGS')
         self.expected = [u'No Descriptors', u'Violence', u'Language', u'Drugs']
 
-    def _flag(self):
-        """Flag app with a handful of descriptor flags for testing."""
-        self.app.rating_descriptors.update(
-            **dict(('has_%s' % f.lower(), True) for f in self.flags))
+        RatingDescriptors.objects.create(addon=self.app)
 
-    def _check(self, obj=None):
-        if not obj:
-            obj = self.app.rating_descriptors
-
-        for descriptor in RATING_DESCS:
-            field = 'has_%s' % descriptor.lower()
-            value = descriptor in self.flags
-            if isinstance(obj, dict):
-                eq_(obj[field], value,
-                    u'Unexpected value for field: %s' % field)
-            else:
-                eq_(getattr(obj, field), value,
-                    u'Unexpected value for field: %s' % field)
-
-    def to_unicode(self, items):
-        """
-        Force unicode evaluation of lazy items in the passed list, for set
-        comparison to a list of already-evaluated unicode strings.
-        """
-        return [unicode(i) for i in items]
-
-    def test_descriptors(self):
-        self._flag()
-        self._check()
-
-    def test_no_descriptors(self):
-        eq_(self.app.rating_descriptors.to_list(), [])
-
-    def test_to_dict(self):
-        self._flag()
-        self._check(self.app.rating_descriptors.to_dict())
-
-    def test_to_list(self):
-        self._flag()
-        to_list = self.app.rating_descriptors.to_list()
-        self.assertSetEqual(self.to_unicode(to_list), self.expected)
-
-    @mock.patch.dict('mkt.webapps.models.RATING_DESCS',
+    @mock.patch.dict('mkt.ratingdescriptors.RATING_DESCS',
                      USK_NO_DESCS={'name': _(u'H\xe9llo')})
     def test_to_list_nonascii(self):
         self.expected[0] = u'H\xe9llo'
@@ -1468,11 +1673,55 @@ class TestRatingDescriptors(amo.tests.TestCase):
         to_list = self.app.rating_descriptors.to_list()
         self.assertSetEqual(self.to_unicode(to_list), self.expected)
 
-    def test_new_app_descriptors_version(self):
-        # Test that the old appdescriptors profile in the fixture sets the new
-       #  app descriptors to False by default.
-        rd = RatingDescriptors(addon=self.app)
-        eq_(rd.has_esrb_blood, False)
+    def test_desc_mapping(self):
+        descs = RatingDescriptors.objects.create(addon=app_factory())
+        for body, mapping in DESC_MAPPING.items():
+            for native, rating_desc_field in mapping.items():
+                assert hasattr(descs, rating_desc_field), rating_desc_field
+
+    def test_reverse_desc_mapping(self):
+        descs = RatingDescriptors.objects.create(addon=app_factory())
+        for desc in descs._fields():
+            eq_(type(REVERSE_DESC_MAPPING.get(desc)), unicode, desc)
+
+    def test_iarc_deserialize(self):
+        descs = RatingDescriptors.objects.create(
+            addon=app_factory(), has_esrb_blood=True, has_pegi_scary=True)
+        self.assertSetEqual(descs.iarc_deserialize().split(', '),
+                            ['Blood', 'Fear'])
+        eq_(descs.iarc_deserialize(body=mkt.ratingsbodies.ESRB), 'Blood')
+
+
+class TestRatingInteractives(DynamicBoolFieldsTestMixin, amo.tests.TestCase):
+
+    def setUp(self):
+        super(TestRatingInteractives, self).setUp()
+        self.model = RatingInteractives
+        self.related_name = 'rating_interactives'
+
+        self.BOOL_DICT = mkt.ratinginteractives.RATING_INTERACTIVES
+        self.flags = ('SHARES_INFO', 'DIGITAL_PURCHASES', 'SOCIAL_NETWORKING')
+        self.expected = [u'Shares Info', u'Digital Purchases',
+                         u'Social Networking']
+
+        RatingInteractives.objects.create(addon=self.app)
+
+    def test_interactives_mapping(self):
+        interactives = RatingInteractives.objects.create(addon=app_factory())
+        for native, field in INTERACTIVES_MAPPING.items():
+            assert hasattr(interactives, field)
+
+    def test_reverse_interactives_mapping(self):
+        interactives = RatingInteractives.objects.create(addon=app_factory())
+        for interactive_field in interactives._fields():
+            assert REVERSE_INTERACTIVES_MAPPING.get(interactive_field)
+
+    def test_iarc_deserialize(self):
+        interactives = RatingInteractives.objects.create(
+            addon=app_factory(), has_users_interact=True, has_shares_info=True)
+        self.assertSetEqual(
+            interactives.iarc_deserialize().split(', '),
+            ['Shares Info', 'Users Interact'])
 
 
 class TestManifestUpload(BaseUploadTest, amo.tests.TestCase):
@@ -1522,4 +1771,29 @@ class TestGeodata(amo.tests.WebappTestCase):
         self.geo = self.app.geodata
 
     def test_app_geodata(self):
-         assert isinstance(Webapp(id=337141).geodata, Geodata)
+        assert isinstance(Webapp(id=337141).geodata, Geodata)
+
+    def test_unicode(self):
+        eq_(unicode(self.geo),
+            u'%s (unrestricted): <Webapp 337141>' % self.geo.id)
+        self.geo.update(restricted=True)
+        eq_(unicode(self.geo),
+            u'%s (restricted): <Webapp 337141>' % self.geo.id)
+
+    def test_get_status(self):
+        eq_(self.geo.get_status(mkt.regions.CN), amo.STATUS_NULL)
+        eq_(self.geo.region_cn_status, amo.STATUS_NULL)
+
+    def test_set_status(self):
+        status = amo.STATUS_PUBLIC
+
+        # Called with `save=False`.
+        self.geo.set_status(mkt.regions.CN, status)
+        eq_(self.geo.region_cn_status, status)
+        eq_(self.geo.reload().region_cn_status, amo.STATUS_NULL,
+            '`set_status(..., save=False)` should not save the value')
+
+        # Called with `save=True`.
+        self.geo.set_status(mkt.regions.CN, status, save=True)
+        eq_(self.geo.region_cn_status, status)
+        eq_(self.geo.reload().region_cn_status, status)

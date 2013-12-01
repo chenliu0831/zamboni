@@ -9,7 +9,7 @@ define('payments-manage', ['payments'], function(payments) {
 
     function newBangoPaymentAccount(e) {
         var $overlay = payments.getOverlay({
-            'id': 'add-bango-account',
+            'id': 'payment-account-add',
             'class': 'undismissable'
         });
         payments.setupPaymentAccountOverlay($overlay, showAgreement);
@@ -38,7 +38,7 @@ define('payments-manage', ['payments'], function(payments) {
     }
 
     function setupAgreementOverlay(data, onsubmit) {
-        var $waiting_overlay = payments.getOverlay('bango-waiting');
+        var $waiting_overlay = payments.getOverlay('payment-account-waiting');
         var $portal_link = data['portal-link'];
 
         $.getJSON(data['agreement-url'], function(response) {
@@ -64,7 +64,7 @@ define('payments-manage', ['payments'], function(payments) {
             }));
 
             // Plop in text of agreement.
-            $('.agreement-text').text(response.text);
+            $('.agreement-text').html(response.text);
         });
     }
 
@@ -77,23 +77,25 @@ define('payments-manage', ['payments'], function(payments) {
 
     function portalRedirect(data) {
         // Redirecting to Bango dev portal if the local redirection is successful.
+        data.el.addClass('loading-submit').text('');
         $.ajax(data['portal-url'])
             .done(function(data, textStatus, jqXHR) {
-                window.location.replace(jqXHR.getResponseHeader("Location"));})
-            .fail(function() {
-                data.el.closest('td').text(gettext('Authentication error'));});
+                window.location.replace(jqXHR.getResponseHeader("Location"));
+            }).fail(function() {
+                data.el.removeClass('loading-submit').closest('td').text(gettext('Authentication error'));
+            });
     }
 
     function editBangoPaymentAccount(account_url) {
         function paymentAccountSetup() {
-            var $overlay = payments.getOverlay('edit-bango-account');
+            var $overlay = payments.getOverlay('payment-account-edit');
             $overlay.find('form').attr('action', account_url);
             payments.setupPaymentAccountOverlay($overlay, refreshAccountForm);
         }
 
         // Start the loading screen while we get the account data.
         return function(e) {
-            var $waiting_overlay = payments.getOverlay('bango-waiting');
+            var $waiting_overlay = payments.getOverlay('payment-account-waiting');
             $.getJSON(account_url, function(data) {
                 $waiting_overlay.remove();
                 z.body.removeClass('overlayed');

@@ -202,13 +202,13 @@ class Addon(amo.models.OnChangeMixin, amo.models.ModelBase):
     slug = models.CharField(max_length=30, unique=True, null=True)
     # This column is only used for webapps, so they can have a slug namespace
     # separate from addons and personas.
-    app_slug = models.CharField(max_length=30, unique=True, null=True)
-    name = TranslatedField()
+    app_slug = models.CharField(max_length=30, unique=True, null=True, blank=True)
+    name = TranslatedField(default=None)
     default_locale = models.CharField(max_length=10,
                                       default=settings.LANGUAGE_CODE,
                                       db_column='defaultlocale')
 
-    type = models.PositiveIntegerField(db_column='addontype_id')
+    type = models.PositiveIntegerField(db_column='addontype_id', default=0)
     status = models.PositiveIntegerField(
         choices=STATUS_CHOICES, db_index=True, default=0)
     highest_status = models.PositiveIntegerField(
@@ -327,7 +327,7 @@ class Addon(amo.models.OnChangeMixin, amo.models.ModelBase):
                                         on_delete=models.SET_NULL,
                                         null=True, related_name='+')
     make_public = models.DateTimeField(null=True)
-    mozilla_contact = models.EmailField()
+    mozilla_contact = models.EmailField(blank=True)
 
     # Whether the app is packaged or not (aka hosted).
     is_packaged = models.BooleanField(default=False, db_index=True)
@@ -449,6 +449,8 @@ class Addon(amo.models.OnChangeMixin, amo.models.ModelBase):
         # `mkt.webapps.tasks.unindex_webapps.delay([id])`
         if not self.type == amo.ADDON_WEBAPP:
             tasks.unindex_addons.delay([id])
+        else:
+            self.set_iarc_storefront_data(disable=True)
 
         return True
 
@@ -1097,7 +1099,7 @@ class Addon(amo.models.OnChangeMixin, amo.models.ModelBase):
                             amo.STATUS_LITE_AND_NOMINATED,
                             amo.STATUS_DELETED) or
             not self.latest_version or
-            not self.latest_version.files.exclude(status=amo.STATUS_OBSOLETE)):
+            not self.latest_version.files.exclude(status=amo.STATUS_DISABLED)):
             return ()
         elif self.status == amo.STATUS_NOMINATED:
             return (amo.STATUS_LITE,)
@@ -1157,6 +1159,9 @@ class Addon(amo.models.OnChangeMixin, amo.models.ModelBase):
 
     def is_public(self):
         return self.status == amo.STATUS_PUBLIC and not self.disabled_by_user
+
+    def is_public_waiting(self):
+        return self.status == amo.STATUS_PUBLIC_WAITING
 
     def is_incomplete(self):
         return self.status == amo.STATUS_NULL

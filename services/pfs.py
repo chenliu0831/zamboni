@@ -111,8 +111,8 @@ def get_output(data):
                 iconUrl='http://fpdownload2.macromedia.com/pub/flashplayer/current/fp_win_installer.ico',
                 needsRestart='false',
                 InstallerShowsUI='true',
-                version='11.9.900.117',
-                InstallerHash='sha256:d4a797511105a2bdf7492f0a06fad65f680cb41a36bde9d7954d0b10db5b1efb',
+                version='11.9.900.152',
+                InstallerHash='sha256:68ef5992a658e1304fcb4d556c770fb9f381928c5de1e133f3a741b51d9671cf',
                 InstallerLocation='http://download.macromedia.com/pub/flashplayer/pdc/fp_pl_pfs_installer.exe')
 
     elif (g['mimetype'] == 'application/x-director' and
@@ -136,6 +136,7 @@ def get_output(data):
             version='12.0.5.146',
             InstallerHash='sha256:eb6e5fb375c7e2f75c14d8678c595569bfc3da5fb5b1a7a0b293197867e42545',
             InstallerLocation='http://fpdownload.macromedia.com/pub/shockwave/default/english/win95nt/latest/Shockwave_Installer_FF.exe',
+            manualInstallationURL='http://get.adobe.com/shockwave/otherversions',
             needsRestart='false',
             InstallerShowsUI='false')
 

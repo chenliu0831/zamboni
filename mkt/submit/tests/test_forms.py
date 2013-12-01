@@ -175,10 +175,6 @@ class TestAppDetailsBasicForm(amo.tests.TestCase):
         self.request = mock.Mock()
         self.request.amo_user = UserProfile.objects.get(id=999)
 
-    def test_prefill_support_email(self):
-        form = forms.AppDetailsBasicForm({}, request=self.request)
-        eq_(form.initial, {'support_email': {'en-us': 'regular@mozilla.com'}})
-
     def test_slug(self):
         app = Webapp.objects.get(pk=337141)
         data = {
@@ -203,7 +199,6 @@ class TestAppFeaturesForm(amo.tests.TestCase):
         self.form = forms.AppFeaturesForm()
         self.app = Webapp.objects.get(pk=337141)
         self.features = self.app.current_version.features
-        self.create_switch('buchets')
 
     def _check_log(self, action):
         assert AppLog.objects.filter(

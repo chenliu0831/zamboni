@@ -6,21 +6,21 @@ from test_utils import RequestFactory
 
 import amo
 import amo.tests
-from addons.models import Category, AddonUser
+from addons.models import AddonUser, Category
 from amo.urlresolvers import reverse
 from users.models import UserProfile
 
 import mkt
-from mkt.api.resources import AppResource
 from mkt.collections.constants import (COLLECTIONS_TYPE_BASIC,
                                        COLLECTIONS_TYPE_OPERATOR)
-from mkt.constants.features import FeatureProfile
 from mkt.collections.models import Collection, CollectionMembership
 from mkt.collections.serializers import (CollectionMembershipField,
                                          CollectionSerializer,
                                          DataURLImageField)
+from mkt.constants.features import FeatureProfile
 from mkt.search.api import WithFeaturedResource
 from mkt.site.fixtures import fixture
+from mkt.webapps.api import AppSerializer
 
 
 class CollectionDataMixin(object):
@@ -42,7 +42,6 @@ class BaseTestCollectionMembershipField(object):
         self.field.context = {}
         self.membership = CollectionMembership.objects.all()[0]
         self.profile = FeatureProfile(apps=True).to_signature()
-        self.create_switch('buchets')
 
     def get_request(self, query_string):
         request = RequestFactory().get('/', query_string)
@@ -51,7 +50,10 @@ class BaseTestCollectionMembershipField(object):
         return request
 
     def test_to_native(self):
-        resource = AppResource().full_dehydrate(Bundle(obj=self.app))
+        request = self.get_request({})
+        resource = AppSerializer(self.app)
+        resource.context = {'request': request}
+        self.field.context['request'] = request
         native = self.field.to_native(self.membership)
         for key, value in native.iteritems():
             if key == 'resource_uri':

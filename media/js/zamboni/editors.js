@@ -265,8 +265,13 @@ function initDailyMessage(doc) {
 
 
 function initQueue() {
-    var url = $('#addon-queue').attr('data-url'),
-        addon_ids = $.map($('.addon-row'), function(el) {
+    var $q = $('#addon-queue[data-url]');
+    if (!$q.length) {
+        return;
+    }
+
+    var url = $q.attr('data-url');
+    var addon_ids = $.map($('.addon-row'), function(el) {
             return $(el).attr('data-addon');
         });
     if(!(('localStorage' in window) && window.localStorage['dont_poll'])) {
@@ -445,4 +450,41 @@ function initPerformanceStats() {
 
 }
 
-
+// Editors review translations.
+$(function () {
+    // Click to translate.
+    $('#reviews-flagged').delegate('.review-flagged .translate', 'click', _pd(function(event) {
+        var $this = $(this);
+        // Flag when translated.
+        if ($this.data('translated')) {
+            return;
+        }
+        $this.data('translated', true);
+        $this.addClass('loading-submit');
+        // Find text target.
+        var $title = $this.closest('p').siblings('h3').find('span');
+        var $body = $this.closest('p').siblings('.description');
+        // Retrieve the translation and insert it into the target.
+        $.get($this.attr('href'), function(response, status) {
+            if (status == 'success') {
+                var data = JSON.parse(response);
+                if (data.title) {
+                    $title.text(data.title);
+                }
+                if (data.body) {
+                    $body.text(data.body);
+                }
+            } else {
+                console.error(status);
+            }
+        }, 'text')
+        .always(function() {
+            $this.removeClass('loading-submit');
+        })
+        .error(function(status) {
+            $body.append('<p><small class="error">' +
+                         gettext('Error loading translation') +
+                         '</small></p>');
+        });
+    }));
+});

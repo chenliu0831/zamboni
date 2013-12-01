@@ -2,17 +2,14 @@
 import os
 import uuid
 
+import waffle
 from rest_framework import serializers
 from rest_framework.fields import get_component
-from rest_framework.compat import smart_text
 from rest_framework.reverse import reverse
-from tastypie.bundle import Bundle
 from tower import ugettext_lazy as _
-import waffle
 
 from django.conf import settings
-from django.core.exceptions import (ImproperlyConfigured, ObjectDoesNotExist,
-                                    ValidationError)
+from django.core.exceptions import ImproperlyConfigured
 from django.core.files.base import File
 from django.core.files.storage import default_storage as storage
 
@@ -24,9 +21,10 @@ except ImportError:
     build_id = ''
 import mkt
 from addons.models import Category
-from mkt.api.fields import TranslationSerializerField
-from mkt.api.resources import AppResource
+from mkt.api.fields import (SlugChoiceField, SlugModelChoiceField,
+                            TranslationSerializerField)
 from mkt.features.utils import get_feature_profile
+from mkt.webapps.api import AppSerializer
 from mkt.webapps.models import Webapp
 from users.models import UserProfile
 
@@ -43,8 +41,7 @@ class CollectionMembershipField(serializers.RelatedField):
     want to use this elsewhere.
     """
     def to_native(self, value):
-        bundle = Bundle(obj=value.app)
-        return AppResource().full_dehydrate(bundle).data
+        return AppSerializer(value.app, context=self.context).data
 
     def field_to_native(self, obj, field_name):
         if not hasattr(self, 'context') or not 'request' in self.context:
@@ -63,7 +60,7 @@ class CollectionMembershipField(serializers.RelatedField):
 
         # Filter apps based on feature profiles.
         profile = get_feature_profile(request)
-        if profile and waffle.switch_is_active('buchets'):
+        if profile:
             value = value.filter(**profile.to_kwargs(
                 prefix='app___current_version__features__has_'))
 
@@ -83,7 +80,7 @@ class CollectionMembershipField(serializers.RelatedField):
 
         qs = Webapp.from_search(request, region=region)
         filters = {'collection.id': obj.pk}
-        if profile and waffle.switch_is_active('buchets'):
+        if profile:
             filters.update(**profile.to_kwargs(prefix='features.has_'))
         qs = qs.filter(**filters).order_by('collection.order')
 
@@ -112,57 +109,6 @@ class HyperlinkedRelatedOrNullField(serializers.HyperlinkedRelatedField):
             return None
 
 
-class SlugChoiceField(serializers.ChoiceField):
-    """
-    Companion to SlugChoiceFilter, this field accepts an id or a slug when
-    de-serializing, but always return a slug for serializing.
-
-    Like SlugChoiceFilter, it needs to be initialized with a choices_dict
-    mapping the slugs to objects with id and slug properties. This will be used
-    to overwrite the choices in the underlying code.
-    """
-    def __init__(self, *args, **kwargs):
-        # Create a choice dynamically to allow None, slugs and ids. Also store
-        # choices_dict and ids_choices_dict to re-use them later in to_native()
-        # and from_native().
-        self.choices_dict = kwargs.pop('choices_dict')
-        slugs_choices = self.choices_dict.items()
-        ids_choices = [(v.id, v) for v in self.choices_dict.values()]
-        self.ids_choices_dict = dict(ids_choices)
-        kwargs['choices'] = slugs_choices + ids_choices
-        return super(SlugChoiceField, self).__init__(*args, **kwargs)
-
-    def to_native(self, value):
-        if value:
-            choice = self.ids_choices_dict.get(value, None)
-            if choice is not None:
-                value = choice.slug
-        return super(SlugChoiceField, self).to_native(value)
-
-    def from_native(self, value):
-        if isinstance(value, basestring):
-            choice = self.choices_dict.get(value, None)
-            if choice is not None:
-                value = choice.id
-        return super(SlugChoiceField, self).from_native(value)
-
-
-class SlugModelChoiceField(serializers.PrimaryKeyRelatedField):
-    def field_to_native(self, obj, field_name):
-        attr = self.source or field_name
-        value = getattr(obj, attr)
-        return getattr(value, 'slug', None)
-
-    def from_native(self, data):
-        if isinstance(data, basestring):
-            try:
-                data = self.queryset.only('pk').get(slug=data).pk
-            except ObjectDoesNotExist:
-                msg = self.error_messages['does_not_exist'] % smart_text(data)
-                raise ValidationError(msg)
-        return super(SlugModelChoiceField, self).from_native(data)
-
-
 class CollectionSerializer(serializers.ModelSerializer):
     name = TranslationSerializerField()
     description = TranslationSerializerField()
@@ -174,9 +120,9 @@ class CollectionSerializer(serializers.ModelSerializer):
         source='*',
         view_name='collection-image-detail',
         predicate=lambda o: o.has_image)
-    carrier = SlugChoiceField(required=False,
+    carrier = SlugChoiceField(required=False, empty=None,
         choices_dict=mkt.carriers.CARRIER_MAP)
-    region = SlugChoiceField(required=False,
+    region = SlugChoiceField(required=False, empty=None,
         choices_dict=mkt.regions.REGIONS_DICT)
     category = SlugModelChoiceField(required=False,
         queryset=Category.objects.filter(type=amo.ADDON_WEBAPP))
@@ -259,7 +205,7 @@ class CuratorSerializer(serializers.ModelSerializer):
 class DataURLImageField(serializers.CharField):
     def from_native(self, data):
         if not data.startswith('data:'):
-            raise ValidationError('Not a data URI.')
+            raise serializers.ValidationError('Not a data URI.')
         metadata, encoded = data.rsplit(',', 1)
         parts = metadata.rsplit(';', 1)
         if parts[-1] == 'base64':
@@ -270,7 +216,7 @@ class DataURLImageField(serializers.CharField):
             tmp = File(storage.open(tmp_dst))
             return serializers.ImageField().from_native(tmp)
         else:
-            raise ValidationError('Not a base64 data URI.')
+            raise serializers.ValidationError('Not a base64 data URI.')
 
     def to_native(self, value):
         return value.name

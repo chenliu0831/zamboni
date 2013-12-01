@@ -1,16 +1,20 @@
 from django.conf.urls import url
 
 from tastypie.authorization import ReadOnlyAuthorization
-from tastypie.throttle import BaseThrottle
+from tastypie.exceptions import ImmediateHttpResponse
+from tastypie.http import HttpForbidden
+from tastypie.serializers import Serializer
 from tastypie.utils import trailing_slash
 
 from translations.helpers import truncate
 
+from amo.urlresolvers import reverse
+
 import mkt
+from access import acl
 from mkt.api.authentication import (SharedSecretAuthentication,
                                     OptionalOAuthAuthentication)
 from mkt.api.base import CORSResource, MarketplaceResource
-from mkt.api.resources import AppResource
 from mkt.api.serializers import SuggestionsSerializer
 from mkt.collections.constants import (COLLECTIONS_TYPE_BASIC,
                                        COLLECTIONS_TYPE_FEATURED,
@@ -18,6 +22,7 @@ from mkt.collections.constants import (COLLECTIONS_TYPE_BASIC,
 from mkt.collections.filters import CollectionFilterSetWithFallback
 from mkt.collections.models import Collection
 from mkt.collections.serializers import CollectionSerializer
+from mkt.constants.regions import REGIONS_DICT
 from mkt.features.utils import get_feature_profile
 from mkt.search.views import _filter_search
 from mkt.search.forms import ApiSearchForm
@@ -27,7 +32,7 @@ from mkt.webapps.utils import es_app_to_dict
 
 class SearchResource(CORSResource, MarketplaceResource):
 
-    class Meta(AppResource.Meta):
+    class Meta:
         resource_name = 'search'
         allowed_methods = []
         detail_allowed_methods = []
@@ -36,12 +41,16 @@ class SearchResource(CORSResource, MarketplaceResource):
         authentication = (SharedSecretAuthentication(),
                           OptionalOAuthAuthentication())
         slug_lookup = None
-        # Override CacheThrottle with a no-op.
-        throttle = BaseThrottle()
+        queryset = Webapp.objects.all()  # Gets overriden in dispatch.
+        fields = ['categories', 'description', 'device_types', 'homepage',
+                  'id', 'name', 'payment_account', 'premium_type',
+                  'status', 'support_email', 'support_url']
+        always_return_data = True
+        serializer = Serializer(formats=['json'])
 
     def get_resource_uri(self, bundle):
-        # Link to the AppResource URI.
-        return AppResource().get_resource_uri(bundle.obj)
+        # Link to the AppViewSet URI.
+        return reverse('app-detail', kwargs={'pk': bundle.obj.pk})
 
     def get_search_data(self, request):
         form = ApiSearchForm(request.GET if request else None)
@@ -50,7 +59,39 @@ class SearchResource(CORSResource, MarketplaceResource):
         return form.cleaned_data
 
     def get_region(self, request):
-        # Overridden by reviewers search api to disable region filtering.
+        """
+        Returns the REGION object for the passed request. Rules:
+
+        1. If the GET param `region` is `None`, return `None`. If a request
+           attempts to do this without authentication and one of the
+           'Regions:BypassFilters' permission or curator-level access to a
+           collection, return a 403.
+        2. If the GET param `region` is set and not empty, attempt to return the
+           region with the specified slug.
+        3. If request.REGION is set, return it. (If the GET param `region` is
+           either not set or set and empty, RegionMiddleware will attempt to
+           determine the region via IP address).
+        4. Return the worldwide region.
+
+        This method is overridden by the reviewers search api to completely
+        disable region filtering.
+        """
+        region = request.GET.get('region')
+        if region and region == 'None':
+            collection_curator = (Collection.curators.through.objects.filter(
+                                  userprofile=request.amo_user).exists())
+            has_permission = acl.action_allowed(request, 'Regions',
+                                                'BypassFilters')
+            if not (collection_curator or has_permission):
+                raise ImmediateHttpResponse(response=HttpForbidden())
+            return None
+
+        elif region:
+            try:
+                return REGIONS_DICT[region]
+            except KeyError:
+                raise self.non_form_errors([('region', 'Invalid region.')])
+
         return getattr(request, 'REGION', mkt.regions.WORLDWIDE)
 
     def get_feature_profile(self, request):

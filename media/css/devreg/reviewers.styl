@@ -216,6 +216,24 @@ nav.paginator {
 }
 .sprite-reviewer-premium {
     background-position: -32px 0;
+
+    &.inapp:after {
+        color: $green;
+        content: '\002B';  // Plus sign.
+        font-size: 22px;
+        left: 10px;
+        position: absolute;
+        text-shadow: -1px 0 #000;
+        top: 1px;
+    }
+    &.free.inapp:before {
+        color: $green;
+        content: '\20E0';  // Prohibited sign.
+        font-size: 16px;
+        position: absolute;
+        right: 1px;
+        text-shadow: -1px 0 $ligt-gray;
+    }
 }
 .sprite-reviewer-info {
     background-position: -32px -16px;
@@ -1387,5 +1405,46 @@ span.currently_viewing_warning {
     .advanced-search .form-row {
         left: 15%;
         position: relative;
+    }
+}
+
+.regional-queue {
+    min-width: 860px;
+    .action {
+        text-align: right;
+    }
+    .addon-row a.button {
+        border: 0;
+        display: inline-block;
+        font-size: inherit;
+        height: 35px;
+        line-height: 35px;
+        min-width: 80px;
+        padding: 0 10px;
+
+        &.approve {
+            background: $button-green-dark;
+
+            &:hover {
+                background: $button-green-light;
+            }
+        }
+        &.reject, &.duplicate, &.flag {
+            background: $button-red-dark;
+
+            &:hover {
+                background: $button-red-light;
+            }
+        }
+        &:hover {
+            color: $white;
+        }
+        &.disabled, &.disabled:hover {
+            background: #c1c5ca;
+            color: #919497;
+        }
+        + a.button {
+            margin-left: 10px;
+        }
     }
 }

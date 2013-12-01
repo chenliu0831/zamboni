@@ -6,10 +6,22 @@
   <div class="item addon" data-addonid="{{ addon.id }}">
     <div class="info">
       {{ dev_heading(addon, amo) }}
+
       {% if addon.is_incomplete() %}
         <p class="incomplete">
-          {{ _('This app will be deleted automatically after a few days if
-                the submission process is not completed.') }}
+          {% set complete = addon.is_fully_complete() %}
+          {% if not complete[1].details %}
+            {{ _("This app's submission process has not been fully completed.") }}
+          {% endif %}
+
+          {% if not complete[1].content_ratings %}
+            {# Don't worry, the waffle is handled in is_fully_complete(). #}
+            {{ _('This app needs to get a content rating.') }}
+          {% endif %}
+
+          {% if not complete[1].payments %}
+            {{ _('This app needs a payment account set up.') }}
+          {% endif %}
         </p>
       {% else %}
         <ul class="item-details">
@@ -45,7 +57,7 @@
           <li class="payments">
             <strong>{{ _('Price:') }}</strong>
             {{ price(request, addon) }}
-            {% if addon.is_premium() and not hasOneToOne(addon, 'app_payment_account') %}
+            {% if addon.is_premium() and not addon.has_payment_account() %}
               <a href="{{ addon.get_dev_url('payments') }}">{{ _('Set up Payment Account') }}</a>
             {% endif %}
           </li>
@@ -56,7 +68,7 @@
           {% if waffle.switch('iarc') and not addon.is_rated() and addon.is_public() %}
             <li class="ratings">
               {% trans %}
-                <strong class="rating-notice">This app will be deactivated by January 13th if no content ratings are assigned:</strong>
+                <strong class="rating-notice">This app may be disabled in the future if no content ratings are assigned by then:</strong>
               {% endtrans %}
               <a href="{{ addon.get_dev_url('ratings') }}">{{ _('Set up Content Ratings') }}</a>
             </li>

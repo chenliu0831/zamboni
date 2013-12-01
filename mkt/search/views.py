@@ -1,5 +1,3 @@
-import waffle
-
 import amo
 from apps.search.views import _get_locale_analyzer
 
@@ -101,6 +99,8 @@ def _filter_search(request, qs, query, filters=None, sorting=None,
         qs = qs.filter(app_type__in=query['app_type'])
     if query.get('manifest_url'):
         qs = qs.filter(manifest_url=query['manifest_url'])
+    if query.get('offline') is not None:
+        qs = qs.filter(is_offline=query.get('offline'))
     if query.get('languages'):
         langs = [x.strip() for x in query['languages'].split(',')]
         qs = qs.filter(supported_locales__in=langs)
@@ -127,7 +127,7 @@ def _filter_search(request, qs, query, filters=None, sorting=None,
         # Sort by a default if there was no query so results are predictable.
         qs = qs.order_by(sorting_default)
 
-    if profile and waffle.switch_is_active('buchets'):
+    if profile:
         # Exclude apps that require any features we don't support.
         qs = qs.filter(**profile.to_kwargs(prefix='features.has_'))
 

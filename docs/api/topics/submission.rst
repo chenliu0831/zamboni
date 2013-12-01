@@ -20,7 +20,9 @@ these steps and the user submitting the app must have accepted the `terms of use
    contain all the data. Update the required fields.
 4. :ref:`Create a screenshot <screenshot-post-label>`. For listing on the
    Firefox Marketplace, at least one screenshot is needed.
-5. :ref:`Ask for a review <enable-patch-label>`. All apps need to be reviewed,
+5. :ref:`Attach content ratings <content-ratings>`. All apps need content
+   ratings before being reviewed.
+6. :ref:`Ask for a review <enable-patch-label>`. All apps need to be reviewed,
    this will add it to the review queue.
 
 Validate
@@ -68,7 +70,8 @@ Validate
 
     Returns a :ref:`validation <validation-response-label>` result.
 
-    :status 201: successfully created.
+    :status 201: successfully created, processed.
+    :status 202: successfully created, still processing.
 
 .. _validation-response-label:
 
@@ -267,6 +270,27 @@ Screenshots or videos
     **Response**
 
     :status 204: successfully deleted.
+
+Content ratings
+===============
+
+.. note:: Requires authentication and a successfully created app.
+
+.. _content-ratings:
+
+.. http:post:: /api/v1/apps/(int:app_id)/content-ratings/
+
+    **Request**
+
+    :param submission_id: The submission ID received from IARC.
+    :type submission_id: string
+    :param security_code: The security code received from IARC.
+    :type security_code: string
+
+    **Response**
+
+    :status 201: successfully assigned content ratings.
+    :status 400: error processing the form.
 
 Enabling an App
 ===============

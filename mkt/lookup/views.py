@@ -186,7 +186,8 @@ def transaction_refund(request, tx_uuid):
                   'tx_form': TransactionSearchForm()}.items() +
                  _transaction_summary(tx_uuid).items()))
 
-    data = {'uuid': contrib.transaction_id}
+    data = {'uuid': contrib.transaction_id,
+            'manual': form.cleaned_data['manual']}
     if settings.BANGO_FAKE_REFUNDS:
         data['fake_response_status'] = {'responseCode':
                                         form.cleaned_data['fake']}
@@ -210,7 +211,7 @@ def transaction_refund(request, tx_uuid):
             type=amo.CONTRIB_REFUND, related=contrib,
             uuid=hashlib.md5(str(uuid.uuid4())).hexdigest(),
             amount=-refund_contrib.amount if refund_contrib.amount else None,
-            transaction_id=client.get(res['transaction'])['uuid'])
+            transaction_id=res['uuid'])
 
     if res['status'] == PENDING:
         # Create pending Refund.

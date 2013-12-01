@@ -20,7 +20,8 @@ class TestVersionSerializer(TestCase):
     def setUp(self):
         self.app = app_factory()
         self.features = self.app.current_version.features
-        self.serializer = VersionSerializer()
+        self.request = RequestFactory().get('/')
+        self.serializer = VersionSerializer(context={'request': self.request})
 
     def native(self, obj=None, **kwargs):
         if not obj:
@@ -36,11 +37,8 @@ class TestVersionSerializer(TestCase):
         ok_(all(k in native for k in added_keys))
 
     def test_addon(self):
-        eq_(self.native()['app'], reverse('api_dispatch_detail', kwargs={
-            'resource_name': 'app',
-            'api_name': 'apps',
-            'pk': self.app.pk}
-        ))
+        eq_(self.native()['app'], reverse('app-detail',
+                                          kwargs={'pk': self.app.pk}))
 
     def test_is_current_version(self):
         old_version = Version.objects.create(addon=self.app, version='0.1')
@@ -67,6 +65,7 @@ class TestVersionViewSet(RestOAuth):
         self.app_url = get_url('app', self.app.pk)
         self.version = self.app.current_version
         self.request = RequestFactory()
+        super(TestVersionViewSet, self).setUp()
 
     def test_get(self, version=None, **kwargs):
 
@@ -85,11 +84,8 @@ class TestVersionViewSet(RestOAuth):
         eq_(data['developer_name'], version.developer_name)
         eq_(data['is_current_version'],
             version == self.app.current_version)
-        eq_(data['app'], reverse('api_dispatch_detail', kwargs={
-            'resource_name': 'app',
-            'api_name': 'apps',
-            'pk': self.app.pk}
-        ))
+        eq_(data['app'], reverse('app-detail',
+                                 kwargs={'pk': self.app.pk}))
 
         for key in features:
             ok_(getattr(version.features, 'has_' + key))
@@ -103,11 +99,9 @@ class TestVersionViewSet(RestOAuth):
         self.test_get(version=version)  # Test new version
 
     @mock.patch('mkt.versions.api.AllowAppOwner.has_object_permission')
-    @mock.patch('mkt.versions.api.AllowReviewerReadOnly.is_authorized')
-    def patch(self, mock_has_permission, mock_reviewer_auth, features=None,
+    def patch(self, mock_has_permission, features=None,
               auth=True):
         mock_has_permission.return_value = auth
-        mock_reviewer_auth.return_value = auth
         data = {
             'features': features or ['fm', 'mp3'],
             'developer_name': "Cee's Vans"
@@ -133,6 +127,11 @@ class TestVersionViewSet(RestOAuth):
     def test_patch_no_permission(self):
         data, res = self.patch(auth=False)
         eq_(res.status_code, 403)
+
+    def test_patch_reviewer_permission(self):
+        self.grant_permission(self.profile, 'Apps:Review')
+        data, res = self.patch(auth=False)
+        eq_(res.status_code, 200)
 
     def test_app_delete(self):
         """Deleted apps should result in a 404 for the version API."""

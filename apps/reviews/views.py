@@ -1,4 +1,5 @@
 from django import http
+from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.template import Context, loader
@@ -7,6 +8,7 @@ import commonware.log
 import jingo
 from tower import ugettext as _
 from mobility.decorators import mobile_template
+from waffle.decorators import waffle_switch
 
 import amo
 from amo import messages
@@ -21,6 +23,10 @@ from addons.models import Addon
 from .helpers import user_can_delete_review
 from .models import Review, ReviewFlag, GroupedRating, Spam
 from . import forms
+
+import HTMLParser
+import json
+import requests
 
 log = commonware.log.getLogger('z.reviews')
 addon_view = addon_view_factory(qs=Addon.objects.valid)
@@ -80,6 +86,43 @@ def get_flags(request, reviews):
     reviews = [r.id for r in reviews]
     qs = ReviewFlag.objects.filter(review__in=reviews, user=request.user.id)
     return dict((r.review_id, r) for r in qs)
+
+
+def _retrieve_translation(text, language):
+    try:
+        r = requests.get(
+            settings.GOOGLE_TRANSLATE_API_URL, params={
+                'key': getattr(settings, 'GOOGLE_API_CREDENTIALS', ''),
+                'q': text, 'target': language})
+    except Exception, e:
+        log.error(e)
+    try:
+        translated = (HTMLParser.HTMLParser().unescape(r.json()['data']
+                      ['translations'][0]['translatedText']))
+    except (KeyError, IndexError):
+        translated = ''
+    return translated, r
+
+
+@addon_view
+@waffle_switch('reviews-translate')
+def translate(request, addon, review_id, language):
+    """
+    Use the Google Translate API for ajax, redirect to Google Translate for
+    non ajax calls.
+    """
+    review = get_object_or_404(Review.objects, pk=review_id, addon=addon)
+    if '-' in language:
+        language = language.split('-')[0]
+
+    if request.is_ajax():
+        title, r = _retrieve_translation(review.title, language)
+        body, r = _retrieve_translation(review.body, language)
+        return http.HttpResponse(json.dumps({'title': title, 'body': body}),
+                                 status=r.status_code)
+    else:
+        return redirect(settings.GOOGLE_TRANSLATE_REDIRECT_URL.format(
+            lang=language, text=review.body))
 
 
 @addon_view
